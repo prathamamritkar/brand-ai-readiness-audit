@@ -1,1 +1,15 @@
-
+{
+  "name": "brand-ai-readiness-audit",
+  "version": "0.1.0",
+  "skills": [
+    {
+      "id": "audit-orchestrator",
+      "path": "skills/audit-orchestrator",
+      "entrypoint": true
+    },
+    {
+      "id": "site-intelligence",
+      "path": "skills/site-intelligence"
+    }
+  ]
+}
