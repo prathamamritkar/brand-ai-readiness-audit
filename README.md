@@ -1,18 +1,64 @@
-# Brand AI Readiness Audit
+# Brand AI-Readiness Audit Marketplace
 
-An Agent Skill Marketplace for auditing website AI discoverability and on-site engagement.
+An `agentskills.io`-compliant, deterministic, read-only Agent Skill for auditing any public website's AI discoverability, knowledge graph freshness, and conversational engagement readiness.
 
-## Current status
+## 1. Architecture
 
-This repository is being developed incrementally. The current implementation establishes the marketplace contract and the first evidence-collection skill.
+Decomposes audit logic into three domain sub-skills coordinated by one entrypoint:
 
-## Skills
+| Skill | Responsibility |
+|-------|----------------|
+| `audit-orchestrator` | Entrypoint. Bounded BFS crawl, dispatches checks, deduplicates findings, emits JSON. |
+| `crawl-render-audit` | Off-site discoverability: crawler ACLs, CSR walls, semantic HTML, Schema.org, `/llms.txt`, Open Graph. |
+| `freshness-corroboration` | Knowledge graph drift: temporal markers, `sameAs` vectors, canonicals, legacy tombstoning. |
+| `engagement-audit` | On-site retention: deep anchors, referrer handling, intent-bridge UI, category bleed. |
 
-- `audit-orchestrator` — designated entrypoint; currently defines the composition contract.
-- `site-intelligence` — crawls a public website in a bounded, read-only manner and produces structured site evidence for downstream skills.
+## 2. Orchestration
 
-## Development
+```
+[Target URL]
+  → audit-orchestrator
+      → BFS crawl (respects robots.txt, max_pages, crawl-delay)
+      → Per-page: crawl-render + freshness + engagement checks
+      → Site-wide: sitemap, taxonomy bleed, legacy probes
+      → JSON report
+```
 
-The marketplace is designed around a shared evidence bundle. Specialist skills will consume that evidence rather than independently crawling the target site.
+## 3. Guardrails
 
-Current development is intentionally incremental so each milestone remains reviewable and testable.
+- **Read-only**: Zero mutations, zero auth.
+- **Respectful**: Honors `robots.txt`, `Crawl-delay`, `noindex`.
+- **Bounded**: Hard timeout **280 s** (under the 5-minute ceiling). Max 10 pages.
+- **Generalized**: Pattern-driven. No hardcoded brands, prices, or CMS assumptions.
+
+## 4. Execution
+
+```bash
+python3 skills/audit-orchestrator/scripts/audit_engine.py \
+  --url https://example.com \
+  --max-pages 5 \
+  --out report.json
+```
+
+## 5. Layout
+
+```
+brand-ai-readiness-audit/
+├── marketplace.json
+├── README.md
+└── skills/
+    ├── audit-orchestrator/
+    │   ├── SKILL.md
+    │   ├── scripts/
+    │   │   └── audit_engine.py
+    │   └── references/
+    │       ├── severity_rubric.md
+    │       ├── remediation_catalog.md
+    │       └── checklist.md
+    ├── crawl-render-audit/
+    │   └── SKILL.md
+    ├── freshness-corroboration/
+    │   └── SKILL.md
+    └── engagement-audit/
+        └── SKILL.md
+```
