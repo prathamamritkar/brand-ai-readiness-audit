@@ -4,7 +4,7 @@ An `agentskills.io`-compliant, deterministic, read-only Agent Skill for auditing
 
 ## 1. Architecture
 
-Decomposes audit logic into three domain sub-skills coordinated by one entrypoint:
+Decomposes audit logic into four skills: one entrypoint orchestrator and three domain-specific sub-skills:
 
 | Skill | Responsibility |
 |-------|----------------|
@@ -46,6 +46,8 @@ python3 skills/audit-orchestrator/scripts/audit_engine.py \
 brand-ai-readiness-audit/
 ├── marketplace.json
 ├── README.md
+├── LICENSE
+├── CONTRIBUTORS.md
 └── skills/
     ├── audit-orchestrator/
     │   ├── SKILL.md

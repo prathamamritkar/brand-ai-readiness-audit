@@ -9,7 +9,6 @@ import argparse
 import datetime
 import gzip
 import json
-import re
 import ssl
 import sys
 import time
@@ -41,7 +40,7 @@ class DOMExtractor(HTMLParser):
     def __init__(self):
         super().__init__()
         self.text_chunks: List[str] = []
-        self.script_content: List[str] = []
+        self.external_script_bytes: int = 0
         self.inline_scripts: List[str] = []
         self.json_ld_scripts: List[str] = []
         self.element_ids: Set[str] = set()
@@ -74,7 +73,10 @@ class DOMExtractor(HTMLParser):
             self._in_script = True
             if attr.get("type", "").lower() == "application/ld+json":
                 self._in_json_ld = True
-            elif not attr.get("src"):
+            elif attr.get("src"):
+                src = attr["src"]
+                self.external_script_bytes += len(src.encode("utf-8")) * 50
+            else:
                 self._script_buffer = []
         elif tag == "noscript":
             self._in_noscript = True
@@ -103,6 +105,7 @@ class DOMExtractor(HTMLParser):
             self._script_buffer = []
         elif tag == "noscript":
             self._in_noscript = False
+            # noscript text IS counted (SSR fallbacks); links inside are excluded
         elif tag == "title":
             self._in_title = False
 
@@ -310,6 +313,7 @@ class AuditEngine:
                     "status": status,
                     "headers": headers,
                     "parser": parser,
+                    "schema_nodes": None,
                     "has_framework": any(m in low for m in FRAMEWORK_MARKERS),
                     "has_ui_bridge": any(s in low for s in UI_BRIDGE_SIGNALS),
                 }
@@ -328,18 +332,20 @@ class AuditEngine:
 
         return results
 
-    def _extract_schema(self, parser: DOMExtractor) -> List[Dict[str, Any]]:
-        nodes: List[Dict[str, Any]] = []
-        for raw in parser.json_ld_scripts:
-            try:
-                data = json.loads(raw)
-                if isinstance(data, list):
-                    nodes.extend(d for d in data if isinstance(d, dict))
-                elif isinstance(data, dict):
-                    nodes.append(data)
-            except Exception:
-                continue
-        return nodes
+    def _get_schema(self, data: Dict[str, Any]) -> List[Dict[str, Any]]:
+        if data["schema_nodes"] is None:
+            nodes: List[Dict[str, Any]] = []
+            for raw in data["parser"].json_ld_scripts:
+                try:
+                    parsed = json.loads(raw)
+                    if isinstance(parsed, list):
+                        nodes.extend(d for d in parsed if isinstance(d, dict))
+                    elif isinstance(parsed, dict):
+                        nodes.append(parsed)
+                except Exception:
+                    continue
+            data["schema_nodes"] = nodes
+        return data["schema_nodes"]
 
     def _has_type(self, nodes: List[Dict[str, Any]], types: Set[str]) -> bool:
         for node in nodes:
@@ -368,7 +374,7 @@ class AuditEngine:
             )
 
         words = parser.get_word_count()
-        script_bytes = sum(len(s.encode("utf-8")) for s in parser.script_content)
+        script_bytes = parser.external_script_bytes + sum(len(s.encode("utf-8")) for s in parser.inline_scripts)
         if words < 150 and script_bytes > 40000:
             ev = f"Static HTML: {words} words, scripts: {script_bytes} bytes."
             if data["has_framework"]:
@@ -399,7 +405,7 @@ class AuditEngine:
                 "Consolidate to exactly one h1.", "medium"
             )
 
-        nodes = self._extract_schema(parser)
+        nodes = self._get_schema(data)
         if not nodes:
             self._add_finding(
                 "Zero JSON-LD Structured Data", "high", "discoverability", url,
@@ -454,7 +460,7 @@ class AuditEngine:
     def check_freshness(self, url: str, data: Dict[str, Any]):
         parser = data["parser"]
         headers = data["headers"]
-        nodes = self._extract_schema(parser)
+        nodes = self._get_schema(data)
 
         has_temporal = False
         has_sameas = False
@@ -535,7 +541,7 @@ class AuditEngine:
             seg = [s for s in path.split("/") if s]
             prefix = seg[0] if seg else ""
 
-            for node in self._extract_schema(parser):
+            for node in self._get_schema(data):
                 if "product" in str(node.get("@type", "")).lower():
                     cat = node.get("category") or node.get("additionalType")
                     if cat:
@@ -634,8 +640,8 @@ class AuditEngine:
         return self._compile_report()
 
     def _compile_report(self) -> Dict[str, Any]:
-        order = {"critical": 0, "high": 1, "medium": 2}
-        self.findings.sort(key=lambda x: order.get(x["severity"], 3))
+        order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+        self.findings.sort(key=lambda x: order.get(x["severity"], 4))
 
         summary = {
             "total_findings": len(self.findings),
@@ -656,10 +662,11 @@ def main():
     p = argparse.ArgumentParser(description="Brand AI-Readiness Audit Engine v2.1")
     p.add_argument("--url", required=True)
     p.add_argument("--max-pages", type=int, default=5)
+    p.add_argument("--timeout", type=int, default=15, help="Per-request timeout in seconds (default: 15)")
     p.add_argument("--out", help="Output JSON file path")
     args = p.parse_args()
 
-    engine = AuditEngine(base_url=args.url, max_pages=args.max_pages)
+    engine = AuditEngine(base_url=args.url, max_pages=args.max_pages, timeout=args.timeout)
     report = engine.run()
 
     out = json.dumps(report, indent=2)
