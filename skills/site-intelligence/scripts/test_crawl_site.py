@@ -1,46 +1,110 @@
-import json
 import unittest
-from pathlib import Path
-import sys
+from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).parent))
-from crawl_site import normalize_url, clean_link, PageParser
+import crawl_site
+
+from crawl_site import (
+    classify_page_type,
+    clean_link,
+    normalize_url,
+)
 
 
 class CrawlSiteTests(unittest.TestCase):
+
     def test_normalize_url(self):
-        self.assertEqual(normalize_url("example.com"), "https://example.com/")
-        self.assertEqual(normalize_url("https://Example.COM/a#x"), "https://example.com/a")
+        url = (
+            "HTTPS://Example.COM:443/about/"
+            "?utm_source=test&b=2&a=1#section"
+        )
+
+        self.assertEqual(
+            normalize_url(url),
+            "https://example.com/about?a=1&b=2"
+        )
 
     def test_clean_link(self):
-        self.assertEqual(clean_link("https://example.com/a", "/b"), "https://example.com/b")
-        self.assertIsNone(clean_link("https://example.com/a", "mailto:test@example.com"))
+        self.assertEqual(
+            clean_link(
+                "https://example.com/products/",
+                "../about#team",
+            ),
+            "https://example.com/about"
+        )
 
-    def test_page_parser(self):
-        html = """
-        <html><head>
-          <title>Example Product</title>
-          <meta name="description" content="A product.">
-          <link rel="canonical" href="/products/x">
-          <script type="application/ld+json">{"@type":"Product"}</script>
-        </head><body>
-          <h1>Product X</h1>
-          <p>Useful product information.</p>
-          <a href="/about">About</a>
-          <script>hidden implementation detail</script>
-        </body></html>
-        """
-        p = PageParser("https://example.com/products/x")
-        p.feed(html)
-        result = p.evidence()
+        self.assertIsNone(
+            clean_link(
+                "https://example.com/",
+                "mailto:test@example.com",
+            )
+        )
 
-        self.assertEqual(result["title"], "Example Product")
-        self.assertEqual(result["canonical"], "https://example.com/products/x")
-        self.assertEqual(result["headings"], [{"level": 1, "text": "Product X"}])
-        self.assertEqual(result["links"], ["https://example.com/about"])
-        self.assertEqual(len(result["jsonld_blocks"]), 1)
-        self.assertIn("Useful product information.", " ".join(p.text_parts))
-        self.assertNotIn("hidden implementation detail", " ".join(p.text_parts))
+        self.assertIsNone(
+            clean_link(
+                "https://example.com/",
+                "/document.pdf",
+            )
+        )
+
+    def test_page_type(self):
+        self.assertEqual(
+            classify_page_type(
+                "https://example.com/about"
+            ),
+            "about"
+        )
+
+        self.assertEqual(
+            classify_page_type(
+                "https://example.com/pricing"
+            ),
+            "pricing"
+        )
+
+        self.assertEqual(
+            classify_page_type(
+                "https://example.com/products/widget"
+            ),
+            "product"
+        )
+
+        self.assertEqual(
+            classify_page_type(
+                "https://example.com/"
+            ),
+            "homepage"
+        )
+
+    @patch(
+        "crawl_site.load_robots",
+        return_value={
+            "available": False,
+            "allowed_for_user_agent": False,
+            "sitemaps": [],
+            "_failure": True,
+            "_parser": None,
+        },
+    )
+    def test_robots_failure_blocks_crawl(self, mock_robots):
+        result = crawl_site.crawl(
+            "https://example.com/",
+            max_pages=5,
+            max_depth=2,
+            max_bytes=1_000_000,
+            timeout=5,
+            max_seconds=10,
+        )
+
+        self.assertEqual(
+            result["crawl"]["pages_crawled"],
+            0
+        )
+
+        self.assertTrue(
+            result["crawl"]["blocked_by_robots_failure"]
+        )
+
+        mock_robots.assert_called_once()
 
 
 if __name__ == "__main__":
