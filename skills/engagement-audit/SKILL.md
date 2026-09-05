@@ -1,23 +1,34 @@
 ---
 name: engagement-audit
-description: Audits a website's DOM for structural orientation and context retention, diagnosing the underlying reasons why human visitors abandon the page.
+description: >
+  Evaluates page engagement capability by analyzing structural orientation, context retention, accessibility, and readability. Checks for heading hierarchies, semantic landmarks, text density, visual breaks, and language definitions to ensure both human visitors and AI systems can process and understand the content.
 license: Apache-2.0
 ---
 
 # Engagement Audit
 
 ## When to use
-Use this skill when diagnosing high bounce rates or poor on-site engagement. It evaluates the semantic hierarchy and readability of the raw DOM to ensure a visitor is instantly oriented upon arrival.
+Use this skill to determine whether a web page effectively holds visitor attention and provides clear navigational structure and text layout.
 
 ## Inputs
-* `url`: The target website URL (e.g., `https://example.com`).
+- `url`: The URL of the web page to analyze.
 
 ## Procedure
-1. Receive the target URL.
-2. Extract the raw DOM payload.
-3. Evaluate structural orientation by analyzing the semantic heading hierarchy (e.g., presence and uniqueness of `<h1>`).
-4. Assess context retention by checking for overwhelming, unbroken blocks of text without navigational breakers.
-5. Output findings prioritized by their impact on user retention.
+1. **Phase A — Structural Orientation**: Analyzes `<h1>` tags, heading hierarchies, and semantic landmarks.
+2. **Phase B — Context Retention**: Checks lead paragraph answer density, walls-of-text, structural breakers, and language definition.
+3. **Phase C — Accessible Context**: Identifies unlabeled interactive elements and missing mobile optimization tags.
 
-## Output
-A JSON array of findings. Each finding includes an `id`, `title`, `severity` (critical, high, medium), `evidence` extracted directly from the DOM, and a `suggested_action` for remediation.
+## Output format
+A JSON list of finding objects, matching this schema:
+```json
+{
+  "id": "ENG-NNN",
+  "title": "Issue Title",
+  "severity": "critical|high|medium",
+  "evidence": "Concrete proof from DOM",
+  "suggested_action": {
+    "summary": "Specific fix with mechanism explanation",
+    "priority": "critical|high|medium"
+  }
+}
+```

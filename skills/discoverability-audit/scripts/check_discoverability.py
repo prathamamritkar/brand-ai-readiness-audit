@@ -1,97 +1,238 @@
 import json
 import sys
-import urllib.robotparser
+import argparse
 import requests
-from urllib.parse import urlparse
 from bs4 import BeautifulSoup
+from urllib.parse import urlparse
 
-def analyze_discoverability(url):
+def analyze_discoverability(soup, url, base_url=""):
     findings = []
-    parsed_url = urlparse(url)
-    base_url = f"{parsed_url.scheme}://{parsed_url.netloc}"
     
-    # 1. Heuristic: AI Crawler Accessibility (robots.txt hygiene)
-    rp = urllib.robotparser.RobotFileParser()
-    rp.set_url(f"{base_url}/robots.txt")
-    try:
-        rp.read()
-        # Checking universal AI agent mapping standards
-        if not rp.can_fetch("GPTBot", url) or not rp.can_fetch("Google-Extended", url):
-            findings.append({
-                "id": "DISC-001",
-                "title": "AI Crawlers Blocked via robots.txt",
-                "severity": "critical",
-                "evidence": "The robots.txt file explicitly disallows common AI user-agents (e.g., GPTBot) from extracting the DOM.",
-                "suggested_action": {
-                    "summary": "Update robots.txt directives to allow AI crawler user-agents to index public informational pages.",
-                    "priority": "critical"
-                }
-            })
-    except Exception:
-        pass # If no robots.txt exists, assume accessible.
-
-    # Fetch the raw DOM
-    try:
-        headers = {'User-Agent': 'Mozilla/5.0 (compatible; HackathonBot/1.0)'}
-        response = requests.get(url, headers=headers, timeout=10)
-        soup = BeautifulSoup(response.text, 'html.parser')
-
-        # 2. Heuristic: Universal SEO Mapping Standards (JSON-LD)
-        # We don't look for visual classes, we look for underlying structural truth
-        json_ld_scripts = soup.find_all("script", type="application/ld+json")
-        if not json_ld_scripts:
-            findings.append({
-                "id": "DISC-002",
-                "title": "Missing Schema.org Structured Data",
-                "severity": "high",
-                "evidence": "0 <script type='application/ld+json'> tags found in the DOM. AI systems cannot explicitly map brand entities without this standard.",
-                "suggested_action": {
-                    "summary": "Embed JSON-LD structured data (e.g., Organization, Product) in the HTML <head> to definitively map entity properties.",
-                    "priority": "high"
-                }
-            })
-
-        # 3. Heuristic: JS-Render Gaps (Text-to-HTML Ratio)
-        # Checking if facts are locked inside client-side JS rendering
-        for tag in soup(["script", "style", "noscript", "svg"]):
-            tag.decompose()
-        
-        visible_text = soup.get_text(separator=" ", strip=True)
-        word_count = len(visible_text.split())
-        
-        if word_count < 100:
-            findings.append({
-                "id": "DISC-003",
-                "title": "Severe Client-Side Rendering Dependency",
-                "severity": "high",
-                "evidence": f"The raw HTML payload contains only {word_count} readable words. Content is completely reliant on JS execution, making facts invisible to simple crawlers.",
-                "suggested_action": {
-                    "summary": "Implement Server-Side Rendering (SSR) or Static Site Generation (SSG) so core facts exist in the static DOM payload.",
-                    "priority": "high"
-                }
-            })
-
-    except Exception as e:
-         findings.append({
-            "id": "DISC-ERR",
-            "title": "DOM Extraction Failure",
-            "severity": "critical",
-            "evidence": f"Failed to fetch the target URL: {str(e)}",
+    # Pre-parse JSON-LD scripts
+    scripts = soup.find_all('script', type='application/ld+json')
+    
+    # Phase A — Structured Data Presence
+    
+    # DISC-001
+    if not scripts:
+        findings.append({
+            "id": "DISC-001",
+            "title": "No Schema.org Structured Data",
+            "severity": "high",
+            "evidence": "0 JSON-LD blocks found in the DOM. AI systems have no structured entity data to map.",
             "suggested_action": {
-                "summary": "Verify the URL is publicly accessible and not blocking automated HTTP requests.",
-                "priority": "critical"
+                "summary": "Implement Schema.org JSON-LD to provide explicit entity context to AI systems.",
+                "priority": "high"
             }
         })
+        
+    valid_jsonld_blocks = []
+    failed_jsonld_blocks = 0
+    
+    for script in scripts:
+        try:
+            content = script.string if script.string else ""
+            data = json.loads(content)
+            valid_jsonld_blocks.append(data)
+        except (json.JSONDecodeError, TypeError):
+            failed_jsonld_blocks += 1
 
+    # DISC-002
+    if failed_jsonld_blocks > 0:
+        findings.append({
+            "id": "DISC-002",
+            "title": "JSON-LD Syntax Errors",
+            "severity": "high",
+            "evidence": f"{failed_jsonld_blocks}/{len(scripts)} JSON-LD blocks contain invalid JSON syntax that silently fails in AI parsers.",
+            "suggested_action": {
+                "summary": "Fix JSON syntax errors so AI crawlers can successfully parse the structured data.",
+                "priority": "high"
+            }
+        })
+        
+    # Process items
+    items = []
+    for data in valid_jsonld_blocks:
+        if isinstance(data, dict):
+            items.extend(data.get('@graph', [data]))
+        elif isinstance(data, list):
+            items.extend(data)
+            
+    # Helper to extract all types
+    extracted_types = set()
+    for item in items:
+        if isinstance(item, dict):
+            t = item.get('@type')
+            if isinstance(t, str):
+                extracted_types.add(t)
+            elif isinstance(t, list):
+                extracted_types.update(t)
+
+    generic_types = {"WebSite", "WebPage", "SearchAction"}
+    domain_specific_types = {"Organization", "Product", "Service", "FAQPage", "HowTo", "LocalBusiness", "Article", "BreadcrumbList", "Person", "Event", "Course", "SoftwareApplication"}
+    
+    # DISC-003
+    if valid_jsonld_blocks and extracted_types:
+        has_domain_specific = any(t in domain_specific_types for t in extracted_types)
+        has_generic = any(t in generic_types for t in extracted_types)
+        if not has_domain_specific and has_generic:
+            findings.append({
+                "id": "DISC-003",
+                "title": "Shallow Schema Type Coverage",
+                "severity": "medium",
+                "evidence": f"JSON-LD contains only generic types {list(extracted_types)}. No domain-specific entity types found.",
+                "suggested_action": {
+                    "summary": "Implement domain-specific schemas (e.g., Organization, Product) to ground AI knowledge graphs.",
+                    "priority": "medium"
+                }
+            })
+
+    # Phase B — Entity Disambiguation
+    target_entities = {"Organization", "LocalBusiness", "Person", "Corporation", "Brand"}
+    
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+            
+        t = item.get('@type')
+        item_types = [t] if isinstance(t, str) else t if isinstance(t, list) else []
+        
+        is_target = any(tt in target_entities for tt in item_types)
+        if is_target:
+            name = item.get('name', 'Unnamed Entity')
+            
+            # DISC-004
+            same_as = item.get('sameAs')
+            if not same_as:
+                findings.append({
+                    "id": "DISC-004",
+                    "title": "Entity Ambiguity — No sameAs Links",
+                    "severity": "high",
+                    "evidence": f"Entity '{name}' found in JSON-LD but contains 0 'sameAs' links. AI cannot disambiguate this brand from entities with the same name.",
+                    "suggested_action": {
+                        "summary": "Add authoritative sameAs links (e.g., Wikipedia, LinkedIn, Wikidata) to establish unique brand identity.",
+                        "priority": "high"
+                    }
+                })
+            
+            # DISC-005
+            if '@id' not in item:
+                findings.append({
+                    "id": "DISC-005",
+                    "title": "No Stable Entity Anchor (@id)",
+                    "severity": "medium",
+                    "evidence": f"Entity '{name}' lacks '@id' URI. Without a stable identifier, cross-page entity resolution fails — each page creates a disconnected identity.",
+                    "suggested_action": {
+                        "summary": "Provide stable @id URIs for entities to allow AI to connect information across pages.",
+                        "priority": "medium"
+                    }
+                })
+
+    # DISC-006
+    canonical = soup.find('link', rel='canonical')
+    if not canonical:
+        findings.append({
+            "id": "DISC-006",
+            "title": "Missing Canonical URL",
+            "severity": "high",
+            "evidence": "No <link rel='canonical'> found. Content attribution may leak across URL variants, confusing AI crawlers about the authoritative source.",
+            "suggested_action": {
+                "summary": "Implement a canonical link tag to ensure all AI credit and signals consolidate to the primary URL.",
+                "priority": "high"
+            }
+        })
+        
+    # Phase C — SEO Hygiene & Social Signals
+    
+    # DISC-007
+    title_tag = soup.find('title')
+    meta_desc = soup.find('meta', attrs={'name': 'description'})
+    missing_elements = []
+    
+    if not title_tag or not title_tag.string or not title_tag.string.strip():
+        missing_elements.append("<title>")
+    if not meta_desc or not meta_desc.get('content') or not meta_desc.get('content').strip():
+        missing_elements.append("<meta name='description'>")
+        
+    if missing_elements:
+        findings.append({
+            "id": "DISC-007",
+            "title": "Missing Title or Meta Description",
+            "severity": "medium",
+            "evidence": f"Page is missing {', '.join(missing_elements)}. These are primary signals AI assistants use for page summarization.",
+            "suggested_action": {
+                "summary": "Add robust title and meta description tags to guide AI page summarization and semantic relevance.",
+                "priority": "medium"
+            }
+        })
+        
+    # DISC-008
+    og_tags = ['og:title', 'og:description', 'og:type', 'og:image']
+    missing_og = []
+    
+    for og in og_tags:
+        if not soup.find('meta', attrs={'property': og}):
+            missing_og.append(og)
+            
+    if missing_og:
+        findings.append({
+            "id": "DISC-008",
+            "title": "Missing Open Graph Markup",
+            "severity": "medium",
+            "evidence": f"{len(missing_og)}/4 core Open Graph tags missing ({', '.join(missing_og)}). AI agents and social platforms use these as summary signals.",
+            "suggested_action": {
+                "summary": "Include Open Graph tags as strong semantic signals for AI parsing and content extraction.",
+                "priority": "medium"
+            }
+        })
+        
+    # DISC-009
+    hreflang = soup.find('link', rel='alternate', hreflang=True)
+    if not hreflang:
+        findings.append({
+            "id": "DISC-009",
+            "title": "[Proactive] Hreflang Not Declared",
+            "severity": "medium",
+            "evidence": "No hreflang alternate links declared. If this site serves multiple languages or regions, AI may misattribute content language.",
+            "suggested_action": {
+                "summary": "Declare hreflang tags if applicable, ensuring language models contextualize the content correctly by region.",
+                "priority": "medium"
+            }
+        })
+        
+    # DISC-010
+    has_breadcrumb = 'BreadcrumbList' in extracted_types
+    if not has_breadcrumb:
+        findings.append({
+            "id": "DISC-010",
+            "title": "[Proactive] BreadcrumbList Schema Missing",
+            "severity": "medium",
+            "evidence": "No BreadcrumbList structured data found. Adding breadcrumb schema helps AI understand site hierarchy and improves navigation context.",
+            "suggested_action": {
+                "summary": "Implement BreadcrumbList schema to map out site architecture explicitly for AI understanding.",
+                "priority": "medium"
+            }
+        })
+        
     return findings
 
-if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print(json.dumps({"error": "Target URL is required."}))
-        sys.exit(1)
-        
-    target_url = sys.argv[1]
-    results = analyze_discoverability(target_url)
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description="Analyze a URL for AI Discoverability readiness")
+    parser.add_argument("url", help="The URL to analyze")
+    args = parser.parse_args()
     
-    # Outputs the exact JSON format required by the orchestrator schema
-    print(json.dumps(results, indent=2))
+    try:
+        response = requests.get(args.url, timeout=30)
+        soup = BeautifulSoup(response.content, 'html.parser')
+        
+        parsed_url = urlparse(args.url)
+        base_url = f"{parsed_url.scheme}://{parsed_url.netloc}"
+        
+        results = analyze_discoverability(soup, args.url, base_url)
+        print(json.dumps(results, indent=2))
+    except Exception as e:
+        print(json.dumps({
+            "error": str(e),
+            "message": "Failed to fetch or parse the URL."
+        }, indent=2))
+        sys.exit(1)

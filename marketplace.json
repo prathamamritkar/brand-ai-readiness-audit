@@ -1,6 +1,6 @@
 {
   "name": "brand-ai-readiness-audit",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "skills": [
     {
       "id": "audit-orchestrator",
@@ -8,8 +8,16 @@
       "entrypoint": true
     },
     {
+      "id": "crawl-render-audit",
+      "path": "skills/crawl-render-audit"
+    },
+    {
       "id": "discoverability-audit",
       "path": "skills/discoverability-audit"
+    },
+    {
+      "id": "freshness-signals",
+      "path": "skills/freshness-signals"
     },
     {
       "id": "engagement-audit",
