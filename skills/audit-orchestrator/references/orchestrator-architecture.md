@@ -74,3 +74,4 @@ Every finding follows this strict contract:
   "page": "https://example.com (or '3/5 pages')"
 }
 ```
+

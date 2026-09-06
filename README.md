@@ -81,17 +81,24 @@ Covers: **Weak on-site orientation, No context retention**
 - Unlabeled interactive elements
 - Proactive: viewport meta tag for mobile
 
-## Requirements
+## Quick Start
 
+### 1. Clone the repository
+
+```bash
+git clone https://github.com/prathamamritkar/brand-ai-readiness-audit.git
+cd brand-ai-readiness-audit
 ```
-pip install requests beautifulsoup4
+
+### 2. Install dependencies
+
+```bash
+pip install -r requirements.txt
 ```
 
-No external AI APIs. No headless browsers. Only `requests` + `beautifulsoup4` with Python's built-in `html.parser`.
+> Only `requests` + `beautifulsoup4`. No external AI APIs. No headless browsers. No API keys needed.
 
-## Execution
-
-From the repository root:
+### 3. Run an audit
 
 ```bash
 # Full multi-page audit (crawls target + up to 5 internal pages)
@@ -107,6 +114,8 @@ python skills/audit-orchestrator/scripts/run_audit.py https://example.com --sing
 python skills/audit-orchestrator/scripts/run_audit.py https://example.com > report.json
 ```
 
+### 4. Run individual skills (optional)
+
 Each sub-skill also works independently:
 
 ```bash
@@ -114,6 +123,13 @@ python skills/crawl-render-audit/scripts/check_crawl_render.py https://example.c
 python skills/discoverability-audit/scripts/check_discoverability.py https://example.com
 python skills/freshness-signals/scripts/check_freshness.py https://example.com
 python skills/engagement-audit/scripts/check_engagement.py https://example.com
+```
+
+### 5. Run tests
+
+```bash
+pip install pytest
+pytest tests/ -v
 ```
 
 ## Output Schema
