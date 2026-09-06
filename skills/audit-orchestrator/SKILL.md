@@ -1,27 +1,48 @@
 ---
 name: audit-orchestrator
-description: Entry point for a website AI-readiness audit. Coordinates specialist skills, combines their evidence-backed findings, and emits the marketplace audit report. Use when an agent receives a website audit request.
+description: Entry point for a website AI-readiness audit. Coordinates site evidence collection, specialist audit skills, evidence correlation, and recommendations into one final report. Use when an agent receives a public website audit request.
 license: MIT
 ---
 
 # Audit Orchestrator
 
-## Status
+## Purpose
 
-This is the designated marketplace entrypoint. The composition pipeline is being implemented incrementally.
+The Audit Orchestrator is the single marketplace entrypoint for a public website AI-readiness audit.
 
-## Current procedure
+It coordinates specialist skills without duplicating their audit logic.
 
-1. Accept a public website URL as the audit target.
-2. Invoke `site-intelligence` to establish the shared site evidence bundle.
-3. Preserve the evidence bundle as the common input contract for future specialist skills.
-4. As additional specialist skills are added, compose their findings through the shared finding contract.
-5. Emit one final audit report conforming to the marketplace-required schema.
+The orchestrator is responsible for:
 
-## Safety
+- Accepting the audit target
+- Establishing shared site evidence
+- Invoking specialist skills in dependency order
+- Preserving evidence and provenance
+- Handling unavailable specialist outputs gracefully
+- Correlating findings
+- Generating actionable recommendations
+- Emitting one deterministic final audit report
 
-- Read-only auditing only.
-- Never authenticate to a target site.
-- Never modify target-site content.
-- Respect `robots.txt`.
-- Keep crawling bounded by the configured page and time budgets.
+## Execution Pipeline
+
+Execute the audit in this order:
+
+```text
+Public Website URL
+        ↓
+site-intelligence
+        ↓
+┌────────────────────────────────────┐
+│ Independent specialist audits      │
+│ machine-readability                │
+│ engagement-audit                   │
+│ crawl-render-audit                 │
+│ freshness-corroboration            │
+│ entity-trust                       │
+└──────────────────┬─────────────────┘
+                   ↓
+        evidence-correlator
+                   ↓
+        recommendation-engine
+                   ↓
+             Final Report
