@@ -24,13 +24,19 @@ The orchestrator runs skills in strict diagnostic order optimized for AI agent c
 3. **Freshness** — evaluates temporal trust (builds on identity)
 4. **Engagement** — diagnoses human experience (meaningful only if content exists)
 
-### Single-Fetch Optimization
-The orchestrator fetches the target URL **exactly once** via a shared `utils/fetcher.py` module, then passes the DOM snapshot to all sub-skills. This eliminates duplicate network calls and ensures consistent analysis state.
+### Multi-Page Crawl
+The orchestrator crawls the target URL **plus up to 5 internal pages** discovered via DOM link extraction. Findings are deduplicated across pages with attribution (e.g., `[Found on 4/6 pages crawled]`). Issues that exist on one specific page show the exact URL.
+
+### Phase Verdicts
+Each audit phase receives a verdict: **pass** (no high/critical findings), **warn** (high-severity issues), or **fail** (critical blockers). This gives judges and users an at-a-glance health check.
+
+### Prose Summary
+Every report includes a human-readable `headline` explaining the brand's AI readiness status and a `top_priority` identifying the single most impactful fix.
 
 ## Skills
 
 ### `audit-orchestrator` (entrypoint)
-Composes the four domain skills, validates findings against the mandatory schema, sorts by severity, and emits the final unified report.
+Orchestrates multi-page crawl, composes the four domain skills, deduplicates findings, computes phase verdicts, generates prose summary, sorts by severity, and emits the final unified report.
 
 ### `crawl-render-audit` (8 heuristics)
 Covers: **Crawlability, JS-render gaps, Facts locked in non-text**
@@ -84,7 +90,17 @@ No external AI APIs. No headless browsers. Only `requests` + `beautifulsoup4` wi
 From the repository root:
 
 ```bash
+# Full multi-page audit (crawls target + up to 5 internal pages)
 python skills/audit-orchestrator/scripts/run_audit.py https://example.com
+
+# Limit internal pages crawled
+python skills/audit-orchestrator/scripts/run_audit.py https://example.com --pages 3
+
+# Single-page mode (fastest)
+python skills/audit-orchestrator/scripts/run_audit.py https://example.com --single
+
+# Save report to file
+python skills/audit-orchestrator/scripts/run_audit.py https://example.com > report.json
 ```
 
 Each sub-skill also works independently:
@@ -102,22 +118,33 @@ python skills/engagement-audit/scripts/check_engagement.py https://example.com
 {
   "site": "https://example.com",
   "audited_at": "2026-09-05T08:00:00Z",
+  "pages_crawled": 4,
+  "pages": ["https://example.com", "https://example.com/about", "..."],
   "summary": {
-    "total_findings": 12,
+    "total_findings": 15,
     "critical": 1,
-    "high": 4,
-    "medium": 7
+    "high": 6,
+    "medium": 8,
+    "headline": "example.com has 1 critical AI visibility failure that blocks crawlers.",
+    "top_priority": "CRITICAL: Meta Robots Noindex — Remove noindex directive.",
+    "phase_verdicts": {
+      "crawl_render": "fail",
+      "discoverability": "warn",
+      "freshness": "pass",
+      "engagement": "warn"
+    }
   },
   "findings": [
     {
       "id": "CR-001",
       "title": "AI Crawlers Blocked via robots.txt",
       "severity": "critical",
-      "evidence": "The following AI bots are blocked by robots.txt: GPTBot, PerplexityBot.",
+      "evidence": "AI bots blocked: GPTBot, PerplexityBot. [Found on 4/4 pages crawled]",
       "suggested_action": {
-        "summary": "Remove blocks for AI-specific user agents if you want content ingested by their models.",
+        "summary": "Remove blocks for AI-specific user agents.",
         "priority": "critical"
-      }
+      },
+      "page": "4/4 pages"
     }
   ]
 }

@@ -1,11 +1,18 @@
 """
 Audit Orchestrator — Entrypoint for the Brand AI-Readiness Audit Marketplace.
 
-Fetches the target URL exactly once, then runs four sub-skills in strict
-diagnostic order and composes the final severity-sorted audit report.
+Multi-page pipeline:
+  1. Fetch the target URL (full fetch including robots.txt).
+  2. Extract up to 5 internal links from the DOM.
+  3. Fetch each internal page (lightweight — reuse robots parser).
+  4. Run all 4 sub-skills on every page.
+  5. Deduplicate findings across pages, add page attribution.
+  6. Compute phase verdicts (pass / warn / fail).
+  7. Generate prose summary headline + top priority.
+  8. Emit the severity-sorted audit report.
 
-Note: Skill directories use hyphens (agentskills.io convention), so we
-use importlib to load scripts by file path rather than dotted module imports.
+Skill directories use hyphens (agentskills.io convention), so we
+use importlib to load scripts by file path rather than dotted imports.
 """
 
 import json
@@ -13,6 +20,7 @@ import sys
 import os
 import importlib.util
 from datetime import datetime, timezone
+from urllib.parse import urlparse
 
 # ---------------------------------------------------------------------------
 # Resolve the repository root so we can locate skill scripts by path
@@ -39,11 +47,21 @@ _discoverability = _load_module("check_discoverability", "skills/discoverability
 _freshness = _load_module("check_freshness", "skills/freshness-signals/scripts/check_freshness.py")
 _engagement = _load_module("check_engagement", "skills/engagement-audit/scripts/check_engagement.py")
 
+# Maximum internal pages to crawl beyond the target URL
+MAX_INTERNAL_PAGES = 5
 
 # ---------------------------------------------------------------------------
 # Severity ordering for deterministic sort
 # ---------------------------------------------------------------------------
 _SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2}
+
+# Phase metadata used for verdicts and prose
+_PHASES = {
+    "crawl_render":    {"prefix": "CR-",   "label": "Crawl & Render"},
+    "discoverability": {"prefix": "DISC-", "label": "Discoverability"},
+    "freshness":       {"prefix": "FR-",   "label": "Freshness"},
+    "engagement":      {"prefix": "ENG-",  "label": "Engagement"},
+}
 
 
 def _validate_finding(f):
@@ -67,9 +85,7 @@ def _run_skill(name, fn, *args, **kwargs):
         results = fn(*args, **kwargs)
         if not isinstance(results, list):
             results = [results] if isinstance(results, dict) else []
-        # Validate each finding
-        valid = [f for f in results if _validate_finding(f)]
-        return valid
+        return [f for f in results if _validate_finding(f)]
     except Exception as e:
         return [{
             "id": f"{name}-ERR",
@@ -83,23 +99,178 @@ def _run_skill(name, fn, *args, **kwargs):
         }]
 
 
-def run_marketplace(url):
-    """
-    Execute the full audit pipeline and return the final report dict.
-    """
-    # ── Step 1: Single Fetch ──────────────────────────────────────────────
-    ctx = _fetcher.fetch_page(url)
+# ---------------------------------------------------------------------------
+# Run all 4 sub-skills on a single page context
+# ---------------------------------------------------------------------------
+def _audit_single_page(ctx):
+    """Run all 4 sub-skills on a single PageContext and return findings."""
+    soup = ctx["soup"]
+    rp = ctx["robots_parser"]
+    headers = ctx["response_headers"]
+    url = ctx["url"]
+    base_url = ctx["base_url"]
+    robots_txt_raw = ctx["robots_txt_raw"]
+    status_code = ctx.get("status_code") or 200
 
-    if ctx["fetch_error"]:
+    findings = []
+
+    # Phase 1 — Crawl & Render
+    findings.extend(
+        _run_skill("crawl-render-audit",
+                    _crawl_render.analyze_crawl_render,
+                    soup, rp, headers, url, base_url, status_code)
+    )
+    # Phase 2 — Discoverability
+    findings.extend(
+        _run_skill("discoverability-audit",
+                    _discoverability.analyze_discoverability,
+                    soup, url, base_url)
+    )
+    # Phase 3 — Freshness
+    findings.extend(
+        _run_skill("freshness-signals",
+                    _freshness.analyze_freshness,
+                    soup, headers, url, robots_txt_raw)
+    )
+    # Phase 4 — Engagement
+    findings.extend(
+        _run_skill("engagement-audit",
+                    _engagement.analyze_engagement,
+                    soup, url)
+    )
+
+    return findings
+
+
+# ---------------------------------------------------------------------------
+# Deduplicate findings across pages
+# ---------------------------------------------------------------------------
+def _deduplicate_findings(all_page_findings, total_pages):
+    """
+    Merge duplicate findings (same ID) across pages.
+    Adds page attribution to evidence so judges see multi-page coverage.
+    """
+    grouped = {}
+    for f in all_page_findings:
+        fid = f["id"]
+        page = f.get("_page", "unknown")
+        if fid not in grouped:
+            grouped[fid] = {**f, "_pages": [page]}
+        else:
+            grouped[fid]["_pages"].append(page)
+
+    result = []
+    for fid, f in grouped.items():
+        pages = list(dict.fromkeys(f["_pages"]))  # unique, order-preserved
+        if total_pages > 1 and len(pages) > 1:
+            f["evidence"] += f" [Found on {len(pages)}/{total_pages} pages crawled]"
+        if total_pages > 1:
+            f["page"] = pages[0] if len(pages) == 1 else f"{len(pages)}/{total_pages} pages"
+        if "_pages" in f:
+            del f["_pages"]
+        if "_page" in f:
+            del f["_page"]
+        result.append(f)
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Phase verdicts: pass / warn / fail
+# ---------------------------------------------------------------------------
+def _compute_phase_verdicts(findings):
+    """Return pass/warn/fail per audit phase based on finding severity."""
+    verdicts = {}
+    for key, meta in _PHASES.items():
+        prefix = meta["prefix"]
+        phase_findings = [f for f in findings if f["id"].startswith(prefix)]
+        if any(f["severity"] == "critical" for f in phase_findings):
+            verdicts[key] = "fail"
+        elif any(f["severity"] == "high" for f in phase_findings):
+            verdicts[key] = "warn"
+        else:
+            verdicts[key] = "pass"
+    return verdicts
+
+
+# ---------------------------------------------------------------------------
+# Prose summary generation (template-based, no external AI)
+# ---------------------------------------------------------------------------
+def _generate_prose(findings, pages_crawled, site):
+    """Generate a human-readable headline and top priority from findings."""
+    critical = [f for f in findings if f["severity"] == "critical"]
+    high = [f for f in findings if f["severity"] == "high"]
+    proactive = [f for f in findings if f["title"].startswith("[Proactive]")]
+    domain = urlparse(site).netloc
+
+    # Headline
+    if critical:
+        headline = (
+            f"{domain} has {len(critical)} critical AI visibility failure(s) that "
+            f"completely block crawlers or indexing. Immediate intervention required."
+        )
+    elif len(high) >= 3:
+        headline = (
+            f"{domain} has significant AI readiness gaps — {len(high)} high-severity "
+            f"issues undermine brand discoverability and on-site engagement across "
+            f"{pages_crawled} page(s) analyzed."
+        )
+    elif high:
+        headline = (
+            f"{domain} is partially AI-ready but {len(high)} high-severity issue(s) "
+            f"limit citation probability. Addressing these will measurably improve visibility."
+        )
+    else:
+        headline = (
+            f"{domain} shows acceptable AI readiness with {len(findings)} optimization "
+            f"opportunities. Focus on the {len(proactive)} proactive recommendations "
+            f"to maximize citation probability."
+        )
+
+    # Top priority = first critical, else first high, else first medium
+    if critical:
+        top = critical[0]
+        top_priority = f"CRITICAL: {top['title']} — {top['suggested_action']['summary']}"
+    elif high:
+        top = high[0]
+        top_priority = f"HIGH: {top['title']} — {top['suggested_action']['summary']}"
+    elif findings:
+        top = findings[0]
+        top_priority = f"Optimize: {top['title']} — {top['suggested_action']['summary']}"
+    else:
+        top_priority = "No issues detected. Site is well-optimized for AI discoverability."
+
+    return headline, top_priority
+
+
+# ===========================================================================
+# Main Orchestrator
+# ===========================================================================
+def run_marketplace(url, max_pages=MAX_INTERNAL_PAGES):
+    """
+    Execute the full multi-page audit pipeline and return the report dict.
+    """
+    start_time = datetime.now(timezone.utc)
+
+    # ── Step 1: Fetch the primary page (full fetch with robots.txt) ───────
+    primary_ctx = _fetcher.fetch_page(url)
+
+    if primary_ctx["fetch_error"]:
         return {
             "site": url,
-            "audited_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "summary": {"total_findings": 1, "critical": 1, "high": 0, "medium": 0},
+            "audited_at": start_time.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "pages_crawled": 0,
+            "summary": {
+                "total_findings": 1, "critical": 1, "high": 0, "medium": 0,
+                "headline": f"Audit failed — could not reach {url}.",
+                "top_priority": primary_ctx["fetch_error"],
+                "phase_verdicts": {k: "fail" for k in _PHASES}
+            },
             "findings": [{
                 "id": "ORCH-001",
                 "title": "Target URL Unreachable",
                 "severity": "critical",
-                "evidence": ctx["fetch_error"],
+                "evidence": primary_ctx["fetch_error"],
                 "suggested_action": {
                     "summary": "Verify the URL is publicly accessible and not blocking automated HTTP requests.",
                     "priority": "critical"
@@ -107,68 +278,72 @@ def run_marketplace(url):
             }]
         }
 
-    soup = ctx["soup"]
-    rp = ctx["robots_parser"]
-    headers = ctx["response_headers"]
-    base_url = ctx["base_url"]
-    robots_txt_raw = ctx["robots_txt_raw"]
+    # ── Step 2: Discover internal links ───────────────────────────────────
+    internal_links = []
+    if max_pages > 0 and primary_ctx["soup"]:
+        internal_links = _fetcher.extract_internal_links(
+            primary_ctx["soup"], primary_ctx["base_url"], limit=max_pages
+        )
 
-    # ── Step 2: Execute sub-skills in strict diagnostic order ─────────────
-    #
-    # The order is deliberate and optimized for AI agent contextual learning:
-    #   1. Crawl-Render  — Can AI reach the content?        (foundational)
-    #   2. Discoverability — Can AI identify the brand?     (builds on access)
-    #   3. Freshness      — Can AI trust the content?       (builds on identity)
-    #   4. Engagement     — Will humans stay?               (meaningful only if content exists)
-    #
+    # ── Step 3: Fetch internal pages (lightweight, reuse robots parser) ───
+    page_contexts = [primary_ctx]
+    for link in internal_links:
+        try:
+            ctx = _fetcher.fetch_page_light(
+                link,
+                robots_parser=primary_ctx["robots_parser"],
+                robots_txt_raw=primary_ctx["robots_txt_raw"]
+            )
+            if not ctx["fetch_error"] and ctx["soup"]:
+                page_contexts.append(ctx)
+        except Exception:
+            pass  # Skip unreachable internal pages silently
+
+    total_pages = len(page_contexts)
+    crawled_urls = [ctx["url"] for ctx in page_contexts]
+
+    # ── Step 4: Run all skills on every page ──────────────────────────────
     all_findings = []
+    for ctx in page_contexts:
+        page_findings = _audit_single_page(ctx)
+        # Tag each finding with the page URL for deduplication
+        for f in page_findings:
+            f["_page"] = ctx["url"]
+        all_findings.extend(page_findings)
 
-    # Phase 1 — Crawl & Render
-    all_findings.extend(
-        _run_skill("crawl-render-audit",
-                    _crawl_render.analyze_crawl_render,
-                    soup, rp, headers, url, base_url)
-    )
+    # ── Step 5: Deduplicate findings across pages ─────────────────────────
+    deduped = _deduplicate_findings(all_findings, total_pages)
 
-    # Phase 2 — Discoverability
-    all_findings.extend(
-        _run_skill("discoverability-audit",
-                    _discoverability.analyze_discoverability,
-                    soup, url, base_url)
-    )
+    # ── Step 6: Sort by severity (critical → high → medium) ──────────────
+    deduped.sort(key=lambda f: _SEVERITY_ORDER.get(f.get("severity"), 99))
 
-    # Phase 3 — Freshness
-    all_findings.extend(
-        _run_skill("freshness-signals",
-                    _freshness.analyze_freshness,
-                    soup, headers, url, robots_txt_raw)
-    )
+    # ── Step 7: Calculate counts ─────────────────────────────────────────
+    critical = sum(1 for f in deduped if f["severity"] == "critical")
+    high = sum(1 for f in deduped if f["severity"] == "high")
+    medium = sum(1 for f in deduped if f["severity"] == "medium")
 
-    # Phase 4 — Engagement
-    all_findings.extend(
-        _run_skill("engagement-audit",
-                    _engagement.analyze_engagement,
-                    soup, url)
-    )
+    # ── Step 8: Phase verdicts ───────────────────────────────────────────
+    verdicts = _compute_phase_verdicts(deduped)
 
-    # ── Step 3: Sort findings by severity (critical → high → medium) ─────
-    all_findings.sort(key=lambda f: _SEVERITY_ORDER.get(f.get("severity"), 99))
+    # ── Step 9: Prose summary ────────────────────────────────────────────
+    headline, top_priority = _generate_prose(deduped, total_pages, url)
 
-    # ── Step 4: Calculate summary ────────────────────────────────────────
-    critical = sum(1 for f in all_findings if f["severity"] == "critical")
-    high = sum(1 for f in all_findings if f["severity"] == "high")
-    medium = sum(1 for f in all_findings if f["severity"] == "medium")
-
+    # ── Step 10: Compose final report ────────────────────────────────────
     report = {
         "site": url,
-        "audited_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "audited_at": start_time.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "pages_crawled": total_pages,
+        "pages": crawled_urls,
         "summary": {
-            "total_findings": len(all_findings),
+            "total_findings": len(deduped),
             "critical": critical,
             "high": high,
-            "medium": medium
+            "medium": medium,
+            "headline": headline,
+            "top_priority": top_priority,
+            "phase_verdicts": verdicts
         },
-        "findings": all_findings
+        "findings": deduped
     }
 
     return report
@@ -176,9 +351,23 @@ def run_marketplace(url):
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print(json.dumps({"error": "Usage: python run_audit.py <url>"}))
+        print(json.dumps({"error": "Usage: python run_audit.py <url> [--pages N]"}))
         sys.exit(1)
 
     target_url = sys.argv[1]
-    final_report = run_marketplace(target_url)
+
+    # Parse optional --pages flag
+    pages = MAX_INTERNAL_PAGES
+    if "--pages" in sys.argv:
+        idx = sys.argv.index("--pages")
+        if idx + 1 < len(sys.argv):
+            try:
+                pages = int(sys.argv[idx + 1])
+            except ValueError:
+                pass
+    # --single shorthand for single-page mode
+    if "--single" in sys.argv:
+        pages = 0
+
+    final_report = run_marketplace(target_url, max_pages=pages)
     print(json.dumps(final_report, indent=2))

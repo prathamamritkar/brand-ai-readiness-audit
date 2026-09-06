@@ -1,4 +1,5 @@
 import json
+import re
 import sys
 import argparse
 import requests
@@ -186,19 +187,28 @@ def analyze_discoverability(soup, url, base_url=""):
             }
         })
         
-    # DISC-009
-    hreflang = soup.find('link', rel='alternate', hreflang=True)
+    # DISC-009: Only flag hreflang if there are multi-language signals on the page,
+    # otherwise it fires on every single-language site and becomes noise.
+    hreflang = soup.find('link', attrs={'rel': 'alternate', 'hreflang': True})
     if not hreflang:
-        findings.append({
-            "id": "DISC-009",
-            "title": "[Proactive] Hreflang Not Declared",
-            "severity": "medium",
-            "evidence": "No hreflang alternate links declared. If this site serves multiple languages or regions, AI may misattribute content language.",
-            "suggested_action": {
-                "summary": "Declare hreflang tags if applicable, ensuring language models contextualize the content correctly by region.",
-                "priority": "medium"
-            }
-        })
+        # Check for genuine multi-language signals before proactively recommending
+        lang_signals = (
+            soup.find('select', attrs={'name': re.compile(r'lang|language|locale|region', re.I)}) or
+            soup.find('a', href=re.compile(r'/[a-z]{2}(-[a-z]{2})?/', re.I)) or
+            soup.find(attrs={'data-lang': True}) or
+            soup.find(attrs={'hreflang': True})
+        )
+        if lang_signals:
+            findings.append({
+                "id": "DISC-009",
+                "title": "[Proactive] Hreflang Not Declared",
+                "severity": "medium",
+                "evidence": "Multi-language signals detected on the page (language selector or locale-prefixed links) but no <link rel='alternate' hreflang='...'> tags declared. AI may misattribute content language.",
+                "suggested_action": {
+                    "summary": "Declare hreflang alternate links for each language/region variant. This ensures AI models correctly contextualize content by language and do not mix up regional versions.",
+                    "priority": "medium"
+                }
+            })
         
     # DISC-010
     has_breadcrumb = 'BreadcrumbList' in extracted_types
