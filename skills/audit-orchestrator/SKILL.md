@@ -31,8 +31,9 @@ Use this skill as the **sole entrypoint** to audit a target website for AI disco
    - Phase 4 — Engagement (will visitors stay?)
 6. **Deduplicate** — merge duplicate findings across pages with page attribution.
 7. **Phase Verdicts** — compute pass/warn/fail per audit phase.
-8. **Prose Summary** — generate human-readable headline and top priority.
-9. **Compose** — severity-sort findings, emit the final report.
+8. **AI Readiness Score** — compute weighted composite score (0–100).
+9. **Prose Summary** — generate human-readable headline and top priority.
+10. **Compose** — severity-sort findings, emit the final report.
 
 ## Output
 A strict JSON object matching the mandatory marketplace schema:
@@ -43,6 +44,7 @@ A strict JSON object matching the mandatory marketplace schema:
   "pages_crawled": 6,
   "pages": ["https://example.com", "..."],
   "summary": {
+    "ai_readiness_score": 72,
     "total_findings": 0,
     "critical": 0, "high": 0, "medium": 0,
     "headline": "Human-readable narrative summary.",

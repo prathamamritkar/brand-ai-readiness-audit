@@ -49,20 +49,15 @@ def fetch_page(url, timeout=30):
         "User-Agent": "Mozilla/5.0 (compatible; BrandAuditBot/2.0; +https://agentskills.io)"
     }
 
-    # --- Fetch robots.txt ---
+    # --- Fetch robots.txt (single request with timeout) ---
     rp = urllib.robotparser.RobotFileParser()
     robots_url = f"{base_url}/robots.txt"
-    rp.set_url(robots_url)
     try:
-        rp.read()
+        robots_resp = requests.get(robots_url, headers=headers, timeout=10)
+        if robots_resp.status_code == 200:
+            context["robots_txt_raw"] = robots_resp.text
+            rp.parse(robots_resp.text.splitlines())
         context["robots_parser"] = rp
-        # Also fetch raw text for sitemap directive extraction
-        try:
-            robots_resp = requests.get(robots_url, headers=headers, timeout=10)
-            if robots_resp.status_code == 200:
-                context["robots_txt_raw"] = robots_resp.text
-        except Exception:
-            pass  # Raw text is optional; parser already loaded
     except Exception:
         # No robots.txt or unreachable — assume fully accessible
         context["robots_parser"] = rp

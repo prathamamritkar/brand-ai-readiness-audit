@@ -11,9 +11,8 @@ env/
 .env
 
 # Local Test Reports
-*report.json
-adobe_report.json
-example_report.json
+*_report.json
+!example_report.json
 
 # OS Generated Files
 .DS_Store

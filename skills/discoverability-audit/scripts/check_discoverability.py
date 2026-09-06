@@ -150,7 +150,7 @@ def analyze_discoverability(soup, url, base_url=""):
     meta_desc = soup.find('meta', attrs={'name': 'description'})
     missing_elements = []
     
-    if not title_tag or not title_tag.string or not title_tag.string.strip():
+    if not title_tag or not title_tag.get_text(strip=True):
         missing_elements.append("<title>")
     if not meta_desc or not meta_desc.get('content') or not meta_desc.get('content').strip():
         missing_elements.append("<meta name='description'>")

@@ -1,6 +1,6 @@
 # Brand AI-Readiness Audit Marketplace
 
-An Agent Skill Marketplace that diagnoses the underlying reasons why a brand is invisible to AI assistants and why human visitors fail to engage. It audits any website — across diverse industry verticals and horizontals — using 35 evidence-backed heuristics covering all failure modes that separate cited brands from ignored ones.
+An Agent Skill Marketplace that diagnoses the underlying reasons why a brand is invisible to AI assistants and why human visitors fail to engage. It audits any website — across diverse industry verticals and horizontals — using 36 evidence-backed heuristics covering all failure modes that separate cited brands from ignored ones.
 
 **Recommend-only**: This marketplace strictly audits and reports. No skill ever alters a live site.
 
@@ -30,15 +30,18 @@ The orchestrator crawls the target URL **plus up to 5 internal pages** discovere
 ### Phase Verdicts
 Each audit phase receives a verdict: **pass** (no high/critical findings), **warn** (high-severity issues), or **fail** (critical blockers). This gives judges and users an at-a-glance health check.
 
+### AI Readiness Score
+Every report includes a **composite AI Readiness Score** (0–100) computed from finding severity: critical (−25), high (−10), medium (−3). This single metric provides a benchmarkable headline number for stakeholders.
+
 ### Prose Summary
 Every report includes a human-readable `headline` explaining the brand's AI readiness status and a `top_priority` identifying the single most impactful fix.
 
 ## Skills
 
 ### `audit-orchestrator` (entrypoint)
-Orchestrates multi-page crawl, composes the four domain skills, deduplicates findings, computes phase verdicts, generates prose summary, sorts by severity, and emits the final unified report.
+Orchestrates multi-page crawl, composes the four domain skills, deduplicates findings, computes phase verdicts, calculates the composite AI Readiness Score (0–100), generates prose summary, sorts by severity, and emits the final unified report.
 
-### `crawl-render-audit` (8 heuristics)
+### `crawl-render-audit` (9 heuristics)
 Covers: **Crawlability, JS-render gaps, Facts locked in non-text**
 - AI crawler blocks via robots.txt (GPTBot, PerplexityBot, ClaudeBot, etc.)
 - Meta robots noindex/nosnippet directives
@@ -47,6 +50,7 @@ Covers: **Crawlability, JS-render gaps, Facts locked in non-text**
 - SSR framework detection (Next.js, Nuxt, React)
 - Facts locked in images without substantive alt text
 - Media embeds without text transcripts or VideoObject schema
+- Bot-block / CAPTCHA response detection
 
 ### `discoverability-audit` (10 heuristics)
 Covers: **Missing/invalid structured data, Entity ambiguity**
@@ -121,6 +125,7 @@ python skills/engagement-audit/scripts/check_engagement.py https://example.com
   "pages_crawled": 4,
   "pages": ["https://example.com", "https://example.com/about", "..."],
   "summary": {
+    "ai_readiness_score": 42,
     "total_findings": 15,
     "critical": 1,
     "high": 6,
@@ -148,4 +153,24 @@ python skills/engagement-audit/scripts/check_engagement.py https://example.com
     }
   ]
 }
+```
+
+### AI Readiness Score
+
+Every report includes a **composite AI Readiness Score** (0–100) that provides a single benchmarkable metric:
+
+| Score Range | Interpretation |
+|-------------|---------------|
+| **90–100** | Excellent — fully optimized for AI crawlers and citations |
+| **70–89** | Good — minor optimization opportunities remain |
+| **50–69** | Needs Work — significant gaps limiting AI visibility |
+| **0–49** | Critical — fundamental failures blocking AI discovery |
+
+Scoring weights: Critical findings deduct 25 points, High deduct 10, Medium deduct 3.
+
+## Testing
+
+```bash
+pip install pytest
+pytest tests/ -v
 ```

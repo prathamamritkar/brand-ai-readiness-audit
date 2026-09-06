@@ -151,13 +151,23 @@ def analyze_freshness(soup, response_headers=None, url='', robots_txt_raw=''):
         min_year = min(all_parsed_years)
         max_year = max(all_parsed_years)
         if max_year - min_year > 2:
-            schema_date_str = schema_dates[0][2] if schema_dates else "unknown"
-            fy_str = footer_year if footer_year else "unknown"
+            # Build dynamic evidence based on what sources exist
+            sources = []
+            if schema_dates:
+                sources.append(f"JSON-LD {schema_dates[0][0]} '{schema_dates[0][2]}'")
+            if footer_year:
+                sources.append(f"footer copyright '© {footer_year}'")
+            time_tag_years = [y for _, p, _ in [] for y in []]  # placeholder
+            # Just use a generic description
+            evidence_str = f"Temporal contradiction detected: date sources span {min_year}–{max_year} (>{max_year - min_year} year gap). "
+            if sources:
+                evidence_str += f"Sources: {', '.join(sources)}. "
+            evidence_str += "Conflicting timestamps reduce AI trust in content accuracy."
             findings.append({
                 "id": "FR-004",
                 "title": "Temporal Contradiction",
                 "severity": "high",
-                "evidence": f"Temporal contradiction detected: JSON-LD claims dateModified '{schema_date_str}' but footer shows '© {fy_str}' — conflicting timestamps reduce AI trust in content accuracy.",
+                "evidence": evidence_str,
                 "suggested_action": {
                     "summary": "Synchronize dates across visible footer, schema, and HTML tags to present a unified temporal signal to AI crawlers.",
                     "priority": "high"
@@ -227,6 +237,18 @@ def analyze_freshness(soup, response_headers=None, url='', robots_txt_raw=''):
                     "priority": "medium"
                 }
             })
+    else:
+        # No robots.txt at all — sitemap is definitely not declared
+        findings.append({
+            "id": "FR-007",
+            "title": "[Proactive] Sitemap Not Declared in robots.txt",
+            "severity": "medium",
+            "evidence": "No robots.txt file found on the server. Without a robots.txt, AI crawlers have no Sitemap directive to guide content discovery and freshness prioritization.",
+            "suggested_action": {
+                "summary": "Create a robots.txt file with a Sitemap directive pointing to your XML sitemap to help AI crawlers discover and prioritize recently updated content.",
+                "priority": "medium"
+            }
+        })
 
     return findings
 

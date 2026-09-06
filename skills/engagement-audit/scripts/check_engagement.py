@@ -38,12 +38,16 @@ def analyze_engagement(soup: BeautifulSoup, url: str) -> list:
     heading_pattern = re.compile(r'^h[1-6]$', re.IGNORECASE)
     all_headings = soup.find_all(heading_pattern)
     gaps = []
+    first_gap_example = ""
     prev_level = None
     for h in all_headings:
         level = int(h.name[1])
         if prev_level is not None:
             if level > prev_level + 1:
-                gaps.append(f"h{prev_level}->h{level}")
+                gap_str = f"h{prev_level}->h{level}"
+                gaps.append(gap_str)
+                if not first_gap_example:
+                    first_gap_example = f"<h{prev_level}> followed by <h{level}>"
         prev_level = level
     
     if gaps:
@@ -51,7 +55,7 @@ def analyze_engagement(soup: BeautifulSoup, url: str) -> list:
             "id": "ENG-003",
             "title": "Heading Level Gaps",
             "severity": "medium",
-            "evidence": f"Heading hierarchy has {len(gaps)} level gap(s): {', '.join(gaps)}. Example: <h{prev_level}> followed by <h{level}> skipping levels. Broken hierarchy degrades semantic outline for AI and screen readers.",
+            "evidence": f"Heading hierarchy has {len(gaps)} level gap(s): {', '.join(gaps)}. Example: {first_gap_example} skipping levels. Broken hierarchy degrades semantic outline for AI and screen readers.",
             "suggested_action": {
                 "summary": "Ensure heading levels nest sequentially without skipping levels to provide a robust document outline.",
                 "priority": "medium"

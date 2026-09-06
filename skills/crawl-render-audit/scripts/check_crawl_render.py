@@ -91,7 +91,7 @@ def analyze_crawl_render(soup, robots_parser, response_headers, url, base_url, s
     # but that's access denial, not JS rendering. Reporting CR-003 there = false positive.
     if bot_blocked:
         findings.append({
-            "id": "CR-003",
+            "id": "CR-009",
             "title": "Site Returned Bot-Block / CAPTCHA Response",
             "severity": "high",
             "evidence": f"The site appears to be blocking automated requests (HTTP {status_code} or CAPTCHA page detected). Content analysis is unreliable — AI crawlers may be similarly blocked.",
@@ -186,18 +186,17 @@ def analyze_crawl_render(soup, robots_parser, response_headers, url, base_url, s
                      "chart", "graph", "banner", "thumbnail", "icon",
                      "placeholder", "figure", "pic", "graphic"}
     images = soup.find_all("img")
-    # Exclude explicitly decorative images (alt="" or role="presentation")
+    # Exclude only explicitly decorative images (role=presentation or alt="" which is the empty-string decorative marker)
     content_images = [
         img for img in images
-        if img.get("role") != "presentation" and img.get("alt") is not None
+        if img.get("role") != "presentation" and img.get("alt") != ""
     ]
     missing_or_trivial = 0
     for img in content_images:
         alt = (img.get("alt") or "").strip()
         if not alt:
-            # alt="" is decorative — skip. alt attribute completely absent = missing
-            if img.get("alt") is None:
-                missing_or_trivial += 1
+            # alt attribute completely absent = missing
+            missing_or_trivial += 1
         else:
             # Flag if alt is a single generic placeholder word
             alt_lower = alt.lower()

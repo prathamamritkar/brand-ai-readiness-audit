@@ -1,0 +1,85 @@
+﻿{
+  "site": "https://www.adobe.com",
+  "audited_at": "2026-09-06T08:10:42Z",
+  "pages_crawled": 1,
+  "pages": [
+    "https://www.adobe.com"
+  ],
+  "summary": {
+    "ai_readiness_score": 82,
+    "total_findings": 6,
+    "critical": 0,
+    "high": 0,
+    "medium": 6,
+    "headline": "www.adobe.com shows acceptable AI readiness with 6 optimization opportunities. Focus on the 2 proactive recommendations to maximize citation probability.",
+    "top_priority": "Optimize: No Noscript Fallback \u2014 Provide a <noscript> fallback containing the core content for crawlers that do not execute JavaScript.",
+    "phase_verdicts": {
+      "crawl_render": "pass",
+      "discoverability": "pass",
+      "freshness": "pass",
+      "engagement": "pass"
+    }
+  },
+  "findings": [
+    {
+      "id": "CR-005",
+      "title": "No Noscript Fallback",
+      "severity": "medium",
+      "evidence": "0 <noscript> tags with meaningful fallback content. Non-JavaScript crawlers receive no alternative content.",
+      "suggested_action": {
+        "summary": "Provide a <noscript> fallback containing the core content for crawlers that do not execute JavaScript.",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "DISC-008",
+      "title": "Missing Open Graph Markup",
+      "severity": "medium",
+      "evidence": "1/4 core Open Graph tags missing (og:type). AI agents and social platforms use these as summary signals.",
+      "suggested_action": {
+        "summary": "Include Open Graph tags as strong semantic signals for AI parsing and content extraction.",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "DISC-010",
+      "title": "[Proactive] BreadcrumbList Schema Missing",
+      "severity": "medium",
+      "evidence": "No BreadcrumbList structured data found. Adding breadcrumb schema helps AI understand site hierarchy and improves navigation context.",
+      "suggested_action": {
+        "summary": "Implement BreadcrumbList schema to map out site architecture explicitly for AI understanding.",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "FR-006",
+      "title": "[Proactive] No FAQ or HowTo Schema",
+      "severity": "medium",
+      "evidence": "No FAQPage or HowTo structured data found. Research shows these are among the highest-citation schema types in AI overviews \u2014 adding them proactively increases citation probability.",
+      "suggested_action": {
+        "summary": "Implement FAQPage or HowTo structured data if applicable. These formats are heavily favored by LLMs for generative search answers.",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "ENG-005",
+      "title": "Weak Lead Answer Density",
+      "severity": "medium",
+      "evidence": "Lead paragraph after <h1> contains only 2 words. The page fails to front-load its value proposition \u2014 AI citations draw from the first 30% of content.",
+      "suggested_action": {
+        "summary": "Expand the lead paragraph to concisely answer the query directly, enabling immediate context capture.",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "ENG-008",
+      "title": "No Language Declaration",
+      "severity": "medium",
+      "evidence": "<html> tag has no 'lang' attribute. Screen readers and AI systems cannot determine the content language, leading to potential misinterpretation.",
+      "suggested_action": {
+        "summary": "Add a valid lang attribute to the <html> element specifying the document's primary language.",
+        "priority": "medium"
+      }
+    }
+  ]
+}

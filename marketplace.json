@@ -1,6 +1,20 @@
 {
   "name": "brand-ai-readiness-audit",
   "version": "2.0.0",
+  "description": "Diagnoses why a brand is invisible to AI assistants and why human visitors fail to engage. Audits any website using 35 evidence-backed heuristics across crawlability, structured data, freshness signals, and on-site engagement — producing an actionable, severity-sorted report with a composite AI Readiness Score.",
+  "author": "Pratham Amritkar",
+  "license": "Apache-2.0",
+  "repository": "https://github.com/prathamamritkar/brand-ai-readiness-audit",
+  "keywords": [
+    "ai-readiness",
+    "seo-audit",
+    "structured-data",
+    "schema-org",
+    "brand-visibility",
+    "llm-optimization",
+    "web-audit",
+    "agent-skill"
+  ],
   "skills": [
     {
       "id": "audit-orchestrator",

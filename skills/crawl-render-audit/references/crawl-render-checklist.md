@@ -47,3 +47,8 @@ This document details the heuristics checked in the `crawl-render-audit` skill.
 - **What**: Flags `iframe` videos, native `<video>` without tracks, or `<canvas>` elements missing `VideoObject` schema or transcripts.
 - **Why**: Videos and canvas interactive elements are opaque boxes. Without semantic metadata, their content isn't read.
 - **Good Looks Like**: Accompanying Schema.org `VideoObject` markup or an explicit on-page text transcript.
+
+### CR-009: Site Returned Bot-Block / CAPTCHA Response
+- **What**: Detects HTTP 403/429/503 responses or CAPTCHA-like page content (e.g., Cloudflare "Just a moment" pages).
+- **Why**: If the site blocks automated HTTP clients, AI crawlers are similarly blocked. This also prevents false positive JS-render findings on CAPTCHA pages.
+- **Good Looks Like**: Configure WAF rules to permit known AI crawler user agents while maintaining bot protection for malicious traffic.
