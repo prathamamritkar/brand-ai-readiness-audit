@@ -26,7 +26,6 @@ SKILL_NAMES = {
     "entity-trust",
     "freshness-corroboration",
     "machine-readability",
-    "site-intelligence",
 }
 
 STATUS_VALUES = {
@@ -140,7 +139,7 @@ def extract_signal(item: Dict[str, Any]) -> str:
         if value:
             return value
 
-    return "unspecified observation"
+    return ""
 
 
 def extract_category(
@@ -207,7 +206,14 @@ def collect_observations(
 ) -> List[Dict[str, Any]]:
     observations: List[Dict[str, Any]] = []
 
-    for item in iter_dicts(payload):
+    source = (
+        payload.get("findings")
+        if isinstance(payload, dict)
+        and isinstance(payload.get("findings"), list)
+        else []
+    )
+
+    for item in iter_dicts(source):
         if not looks_like_observation(item):
             continue
 

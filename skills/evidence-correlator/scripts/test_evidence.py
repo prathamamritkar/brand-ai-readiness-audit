@@ -491,6 +491,43 @@ def test_output_schema():
         "Finding should contain the required fields.",
     )
 
+def test_missing_signal_is_ignored():
+    result = correlate(
+        {
+            "crawl-render-audit": {
+                "findings": [
+                    {
+                        "category": "render_observability",
+                        "status": "absent"
+                    }
+                ]
+            }
+        }
+    )
+
+    assert result["findings"] == []
+
+
+def test_limitation_only_group_is_not_a_finding():
+    result = correlate(
+        {
+            "crawl-render-audit": {
+                "findings": [],
+                "limitations": [
+                    {
+                        "type": "javascript_execution",
+                        "status": "unable_to_determine",
+                        "message": (
+                            "JavaScript execution was not performed; "
+                            "client-side rendering cannot be proven."
+                        ),
+                    }
+                ],
+            }
+        }
+    )
+
+    assert result["findings"] == []
 
 def run_tests():
     tests = [
@@ -504,6 +541,8 @@ def run_tests():
         test_different_issues_same_page,
         test_stable_output_order,
         test_output_schema,
+        test_missing_signal_is_ignored,
+        test_limitation_only_group_is_not_a_finding,
     ]
 
     passed = 0

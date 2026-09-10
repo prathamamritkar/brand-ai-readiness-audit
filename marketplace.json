@@ -45,6 +45,11 @@
       "id": "evidence-correlator",
       "path": "skills/evidence-correlator",
       "entrypoint": false
+    },
+    {
+      "id": "recommendation-engine",
+      "path": "skills/recommendation-engine",
+      "entrypoint": false
     }
   ]
 }

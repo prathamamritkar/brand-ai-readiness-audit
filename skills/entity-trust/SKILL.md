@@ -1,65 +1,245 @@
 ---
 name: entity-trust
-description: Audit entity identity consistency, brand authority signals, and knowledge-graph trustworthiness across a website's evidence bundle. Use when evaluating whether a brand's machine-readable identity is coherent, authoritative, and resistant to LLM misattribution or hallucination.
+description: Evaluate whether a website provides clear, consistent, and machine-interpretable identity signals for its organization, products, or services. Use when auditing entity clarity and trust signals from collected page evidence.
 license: MIT
 compatibility: Python 3.10+, consumes Site Intelligence Evidence Bundle
-allowed-tools: Bash(python:*)
 ---
 
 # Entity Trust
 
 ## Purpose
 
-Verify that a brand's entity identity is **consistent, authoritative, and unambiguous** across its web presence. This skill focuses on trust signals that prevent LLMs from misidentifying, conflating, or hallucinating brand attributes.
+The Entity Trust skill evaluates how clearly a website establishes and represents its core entities.
 
-Unlike `machine-readability` (which reports what structured data exists) and `freshness-corroboration` (which reports temporal signals), `entity-trust` specifically evaluates:
+It looks for evidence that helps an automated system understand:
 
-- **Identity coherence** — same brand name, same `@id`, same canonical entity across pages
-- **Authority linkage** — `sameAs` links that actually resolve to authoritative nodes
-- **Disambiguation strength** — presence of `disambiguatingDescription` and distinct entity boundaries
-- **Cross-page consistency** — entity properties that contradict each other across the site
+- Who operates the website
+- What organization or brand is represented
+- What products or services are offered
+- How important entities are named and described
+- Whether identity information is consistent across relevant pages
+- Whether machine-readable entity references reinforce visible identity
 
-## Input
+The skill evaluates observable website evidence only. It does not determine real-world reputation, legal validity, popularity, or external trust.
 
-Consume the **Site Intelligence Evidence Bundle**.
+Unlike machine-readability, which reports structured-data presence, this skill evaluates whether identity signals are coherent and understandable across the available evidence.
 
-Required evidence:
-- Page records with JSON-LD blocks
-- Page URLs and canonical URLs
-- Robots and sitemap observations
+## Inputs
 
-## Procedure
+The skill consumes Site Intelligence evidence, including:
 
-1. **Extract entity nodes** from all JSON-LD blocks on all pages.
-2. **Group by entity type** (`Organization`, `Brand`, `Product`, `Person`, etc.).
-3. **Check identity coherence**:
-   - If the same page contains multiple `Organization`/`Brand` schemas with different names, flag **entity fragmentation**.
-   - If `sameAs` URLs are present but do not use known authority domains (`wikidata.org`, `wikipedia.org`, `schema.org`, official social domains), flag **weak authority linkage**.
-4. **Check disambiguation**:
-   - If `Organization` or `Brand` lacks `disambiguatingDescription`, flag **disambiguation gap**.
-5. **Check cross-page consistency**:
-   - If two different pages declare `Organization` with different `name` values, flag **identity drift**.
-6. **Check `@id` stability**:
-   - If the same entity type appears with different `@id` values across pages, flag **unstable entity reference**.
-7. Return findings with `category` containing `"entity"`, `"organization"`, `"identity"`, or `"brand"` so downstream correlators can group them into the `entity_identity` family.
+- Page URL
+- Page type
+- Title
+- Meta description
+- Visible text
+- Headings
+- Canonical URL
+- JSON-LD blocks
+- Links
+- Language
+- Site-level crawl metadata
 
-## Output
+The skill must tolerate missing fields.
+
+## Core Principles
+
+### 1. Observable evidence only
+
+Evaluate information actually present in the supplied evidence.
+
+Do not infer ownership, authority, popularity, legitimacy, or reputation from unsupported assumptions.
+
+### 2. Entity clarity
+
+A useful website should provide enough consistent information to establish its primary organization, brand, product, or service entities.
+
+### 3. Cross-page consistency
+
+Identity signals should be compared across relevant pages when evidence is available.
+
+Do not treat missing evidence on one page as proof that the entire site lacks the signal.
+
+### 4. Machine interpretation
+
+Human-readable identity information and machine-readable identity information should reinforce each other.
+
+Relevant machine-readable evidence may include JSON-LD organization, brand, product, service, website, or related entity representations.
+
+### 5. Entity references
+
+When JSON-LD contains entity identifiers such as `@id`, evaluate whether the same apparent entity uses a stable identifier across relevant pages.
+
+Do not assume that different identifiers are automatically incorrect; report instability only when the available evidence indicates that they represent the same entity.
+
+### 6. Relationship signals
+
+Evaluate observable relationships between:
+
+- Organization → website
+- Organization → products/services
+- Product/service → relevant page
+- Brand → offering
+
+Structured relationships such as `@id`, `url`, `brand`, `manufacturer`, or `provider` may provide supporting evidence when present.
+
+### 7. Context matters
+
+A missing organization name on a product page may be acceptable when site-level evidence clearly establishes the organization elsewhere.
+
+Findings should therefore use the smallest useful scope.
+
+### 8. No external reputation claims
+
+The skill must not use:
+
+- Search engine rankings
+- Social media popularity
+- Third-party reviews
+- External backlinks
+- External reputation databases
+
+unless such evidence is explicitly supplied as an input.
+
+## Identity Signals
+
+### Organization identity
+
+Look for:
+
+- Organization or brand name
+- About/company information
+- Contact information
+- Consistent naming
+- Organization-related structured data
+- Stable entity identifiers where available
+- Useful disambiguating descriptions where available
+
+### Product or service identity
+
+Look for:
+
+- Clear product/service name
+- Description
+- Relevant category or purpose
+- Consistent naming across pages
+- Product/service structured data where appropriate
+- Observable relationship to the organization or brand
+
+### Relationship signals
+
+Look for evidence connecting:
+
+- Organization → website
+- Organization → products/services
+- Product/service → relevant page
+- Brand → offering
+
+### Consistency signals
+
+Compare relevant pages for:
+
+- Organization or brand naming
+- Product/service naming
+- Descriptions
+- Canonical identity
+- Structured data versus visible content
+- `@id` stability
+- Entity relationships
+
+## Finding Rules
+
+The skill should produce findings only when evidence supports them.
+
+### Missing organization identity
+
+If relevant site evidence lacks a clear organization or brand identity:
+
+- Signal: `organization_identity_unclear`
+- Status: `absent`
+
+### Missing product/service identity
+
+If a product or service page does not clearly establish what is being offered:
+
+- Signal: `offering_identity_unclear`
+- Status: `absent`
+
+### Identity inconsistency
+
+If relevant pages provide materially different organization, brand, product, or service naming:
+
+- Signal: `identity_inconsistency`
+- Status: `present`
+
+### Machine-readable identity gap
+
+If visible identity information exists but relevant machine-readable entity representation is absent:
+
+- Signal: `machine_identity_gap`
+- Status: `absent`
+
+### Unstable entity reference
+
+If the same apparent entity is represented with materially different `@id` values across relevant pages:
+
+- Signal: `unstable_entity_reference`
+- Status: `present`
+
+Only report this when available evidence supports that the identifiers refer to the same entity.
+
+### Entity relationship gap
+
+If an offering is clearly associated with an organization or brand in visible content but the available machine-readable evidence does not expose a corresponding relationship:
+
+- Signal: `entity_relationship_gap`
+- Status: `absent`
+
+Only report this when the relationship is observable from the supplied evidence.
+
+### Consistent identity
+
+If relevant identity evidence is clear and consistent:
+
+- Signal: `entity_identity_clear`
+- Status: `present`
+
+## Confidence
+
+Confidence reflects evidence quality, not business importance.
+
+Use:
+
+- `high` when multiple independent page signals support the observation
+- `medium` when a clear signal exists from limited evidence
+- `low` when evidence is incomplete or ambiguous
+
+## Output Schema
+
+Return:
 
 ```json
 {
-  "skill": "entity-trust",
   "schema_version": "entity-trust/v1",
+  "summary": {
+    "pages_evaluated": 0,
+    "findings": 0,
+    "identity_clear": 0,
+    "identity_gaps": 0,
+    "inconsistencies": 0
+  },
   "findings": [
     {
-      "category": "entity identity",
-      "issue": "Brand name inconsistent across pages",
-      "status": "conflict",
-      "page_url": "https://example.com/about",
-      "signal": "Organization name 'Acme Inc' on /about vs 'ACME' on /contact",
-      "source": "entity trust audit"
+      "finding_id": "entity-...",
+      "category": "entity_identity",
+      "status": "present|absent|uncertain",
+      "signal": "...",
+      "scope": "site|page",
+      "page_url": "...",
+      "confidence": "high|medium|low",
+      "evidence": [],
+      "limitations": []
     }
   ],
   "limitations": []
 }
-
-  
