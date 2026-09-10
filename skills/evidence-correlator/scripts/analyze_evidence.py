@@ -20,12 +20,14 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
 
-SKILL_NAMES = (
-    "machine-readability",
-    "engagement-audit",
+SKILL_NAMES = {
     "crawl-render-audit",
+    "engagement-audit",
+    "entity-trust",
     "freshness-corroboration",
-)
+    "machine-readability",
+    "site-intelligence",
+}
 
 STATUS_VALUES = {
     "present",
