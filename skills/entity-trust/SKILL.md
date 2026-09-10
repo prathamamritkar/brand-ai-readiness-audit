@@ -1,6 +1,8 @@
 ---
 name: entity-trust
 description: Evaluate whether a website provides clear, consistent, and machine-interpretable identity signals for its organization, products, or services. Use when auditing entity clarity and trust signals from collected page evidence.
+license: MIT
+compatibility: Python 3.10+, consumes Site Intelligence Evidence Bundle
 ---
 
 # Entity Trust
@@ -16,8 +18,11 @@ It looks for evidence that helps an automated system understand:
 - What products or services are offered
 - How important entities are named and described
 - Whether identity information is consistent across relevant pages
+- Whether machine-readable entity references reinforce visible identity
 
 The skill evaluates observable website evidence only. It does not determine real-world reputation, legal validity, popularity, or external trust.
+
+Unlike machine-readability, which reports structured-data presence, this skill evaluates whether identity signals are coherent and understandable across the available evidence.
 
 ## Inputs
 
@@ -59,15 +64,32 @@ Do not treat missing evidence on one page as proof that the entire site lacks th
 
 Human-readable identity information and machine-readable identity information should reinforce each other.
 
-Relevant machine-readable evidence may include JSON-LD organization, product, service, website, or related entity representations.
+Relevant machine-readable evidence may include JSON-LD organization, brand, product, service, website, or related entity representations.
 
-### 5. Context matters
+### 5. Entity references
 
-A missing organization name on a product page may be acceptable when the site-level evidence clearly establishes the organization elsewhere.
+When JSON-LD contains entity identifiers such as `@id`, evaluate whether the same apparent entity uses a stable identifier across relevant pages.
+
+Do not assume that different identifiers are automatically incorrect; report instability only when the available evidence indicates that they represent the same entity.
+
+### 6. Relationship signals
+
+Evaluate observable relationships between:
+
+- Organization → website
+- Organization → products/services
+- Product/service → relevant page
+- Brand → offering
+
+Structured relationships such as `@id`, `url`, `brand`, `manufacturer`, or `provider` may provide supporting evidence when present.
+
+### 7. Context matters
+
+A missing organization name on a product page may be acceptable when site-level evidence clearly establishes the organization elsewhere.
 
 Findings should therefore use the smallest useful scope.
 
-### 6. No external reputation claims
+### 8. No external reputation claims
 
 The skill must not use:
 
@@ -81,8 +103,6 @@ unless such evidence is explicitly supplied as an input.
 
 ## Identity Signals
 
-Evaluate available evidence for:
-
 ### Organization identity
 
 Look for:
@@ -92,6 +112,8 @@ Look for:
 - Contact information
 - Consistent naming
 - Organization-related structured data
+- Stable entity identifiers where available
+- Useful disambiguating descriptions where available
 
 ### Product or service identity
 
@@ -102,6 +124,7 @@ Look for:
 - Relevant category or purpose
 - Consistent naming across pages
 - Product/service structured data where appropriate
+- Observable relationship to the organization or brand
 
 ### Relationship signals
 
@@ -121,12 +144,12 @@ Compare relevant pages for:
 - Descriptions
 - Canonical identity
 - Structured data versus visible content
+- `@id` stability
+- Entity relationships
 
 ## Finding Rules
 
 The skill should produce findings only when evidence supports them.
-
-Examples:
 
 ### Missing organization identity
 
@@ -155,6 +178,24 @@ If visible identity information exists but relevant machine-readable entity repr
 
 - Signal: `machine_identity_gap`
 - Status: `absent`
+
+### Unstable entity reference
+
+If the same apparent entity is represented with materially different `@id` values across relevant pages:
+
+- Signal: `unstable_entity_reference`
+- Status: `present`
+
+Only report this when available evidence supports that the identifiers refer to the same entity.
+
+### Entity relationship gap
+
+If an offering is clearly associated with an organization or brand in visible content but the available machine-readable evidence does not expose a corresponding relationship:
+
+- Signal: `entity_relationship_gap`
+- Status: `absent`
+
+Only report this when the relationship is observable from the supplied evidence.
 
 ### Consistent identity
 

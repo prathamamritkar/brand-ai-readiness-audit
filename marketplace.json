@@ -1,6 +1,10 @@
 {
+  "$schema": "https://agentskills.io/schema/marketplace-v1.json",
   "name": "brand-ai-readiness-audit",
-  "version": "0.1.0",
+  "version": "2.1.0",
+  "description": "Agent Skill Marketplace auditing public websites for AI discoverability, knowledge graph freshness, and conversational engagement.",
+  "author": "Adobe University Hackathon Team",
+  "license": "Apache-2.0",
   "skills": [
     {
       "id": "audit-orchestrator",
@@ -9,7 +13,38 @@
     },
     {
       "id": "site-intelligence",
-      "path": "skills/site-intelligence"
+      "path": "skills/site-intelligence",
+      "entrypoint": false
+    },
+    {
+      "id": "crawl-render-audit",
+      "path": "skills/crawl-render-audit",
+      "entrypoint": false
+    },
+    {
+      "id": "machine-readability",
+      "path": "skills/machine-readability",
+      "entrypoint": false
+    },
+    {
+      "id": "entity-trust",
+      "path": "skills/entity-trust",
+      "entrypoint": false
+    },
+    {
+      "id": "freshness-corroboration",
+      "path": "skills/freshness-corroboration",
+      "entrypoint": false
+    },
+    {
+      "id": "engagement-audit",
+      "path": "skills/engagement-audit",
+      "entrypoint": false
+    },
+    {
+      "id": "evidence-correlator",
+      "path": "skills/evidence-correlator",
+      "entrypoint": false
     }
   ]
 }

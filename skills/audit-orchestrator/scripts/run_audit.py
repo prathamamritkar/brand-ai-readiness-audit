@@ -262,11 +262,18 @@ def build_report(
     )
 
     for name, payload in specialist_outputs.items():
-        if payload["status"] != "completed":
+        if payload["status"] == "completed":
+            limitations.extend(
+                f"{name}: {item}"
+                for item in payload.get("output", {}).get(
+                    "limitations",
+                    [],
+                )
+            )
+        else:
             limitations.append(
                 f"{name}: {payload.get('reason', 'unavailable')}"
             )
-
     crawl_started = evidence.get(
         "crawl",
         {},
