@@ -42,3 +42,4 @@ This document details the heuristics checked in the `security-trust-audit` skill
 - **What**: Checks for a `Referrer-Policy` response header.
 - **Why**: Controls how much referrer information is shared. Its presence indicates security awareness. Proactive recommendation for best practices.
 - **Good Looks Like**: `Referrer-Policy: strict-origin-when-cross-origin` or similar restrictive policy.
+

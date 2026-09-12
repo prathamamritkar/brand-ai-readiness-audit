@@ -19,6 +19,8 @@ disc_module = load_module("check_discoverability", os.path.join(BASE_DIR, r"skil
 fresh_module = load_module("check_freshness", os.path.join(BASE_DIR, r"skills\freshness-signals\scripts\check_freshness.py"))
 eng_module = load_module("check_engagement", os.path.join(BASE_DIR, r"skills\engagement-audit\scripts\check_engagement.py"))
 st_module = load_module("check_security_trust", os.path.join(BASE_DIR, r"skills\security-trust-audit\scripts\check_security_trust.py"))
+perf_module = load_module("check_performance", os.path.join(BASE_DIR, r"skills\performance-audit\scripts\check_performance.py"))
+sa_module = load_module("check_social_authority", os.path.join(BASE_DIR, r"skills\social-authority-audit\scripts\check_social_authority.py"))
 orch_module = load_module("run_audit", os.path.join(BASE_DIR, r"skills\audit-orchestrator\scripts\run_audit.py"))
 
 def analyze_crawl_render(*args, **kwargs): return cr_module.analyze_crawl_render(*args, **kwargs)
@@ -26,6 +28,8 @@ def analyze_discoverability(*args, **kwargs): return disc_module.analyze_discove
 def analyze_freshness(*args, **kwargs): return fresh_module.analyze_freshness(*args, **kwargs)
 def analyze_engagement(*args, **kwargs): return eng_module.analyze_engagement(*args, **kwargs)
 def analyze_security_trust(*args, **kwargs): return st_module.analyze_security_trust(*args, **kwargs)
+def analyze_performance(*args, **kwargs): return perf_module.analyze_performance(*args, **kwargs)
+def analyze_social_authority(*args, **kwargs): return sa_module.analyze_social_authority(*args, **kwargs)
 def _compute_readiness_score(*args, **kwargs): return orch_module._compute_readiness_score(*args, **kwargs)
 def _validate_finding(*args, **kwargs): return orch_module._validate_finding(*args, **kwargs)
 
@@ -288,3 +292,49 @@ def test_st006_has_privacy_link():
     findings = analyze_security_trust(soup, {}, "https://example.com", "https://example.com")
     st006 = [f for f in findings if f['id'] == 'ST-006']
     assert len(st006) == 0
+
+# --- Performance Tests ---
+
+def test_pa006_no_resource_hints():
+    html = "<html><head></head><body></body></html>"
+    soup = BeautifulSoup(html, 'html.parser')
+    findings = analyze_performance(soup, {}, "https://example.com", "https://example.com")
+    pa006 = [f for f in findings if f['id'] == 'PA-006']
+    assert len(pa006) > 0
+
+def test_pa007_no_manifest():
+    html = "<html><head></head><body></body></html>"
+    soup = BeautifulSoup(html, 'html.parser')
+    findings = analyze_performance(soup, {}, "https://example.com", "https://example.com")
+    pa007 = [f for f in findings if f['id'] == 'PA-007']
+    assert len(pa007) > 0
+
+def test_pa006_has_preconnect():
+    html = '<html><head><link rel="preconnect" href="https://fonts.googleapis.com"></head><body></body></html>'
+    soup = BeautifulSoup(html, 'html.parser')
+    findings = analyze_performance(soup, {}, "https://example.com", "https://example.com")
+    pa006 = [f for f in findings if f['id'] == 'PA-006']
+    assert len(pa006) == 0
+
+# --- Social & Authority Tests ---
+
+def test_sa002_no_social_links():
+    html = "<html><body><a href='/about'>About</a></body></html>"
+    soup = BeautifulSoup(html, 'html.parser')
+    findings = analyze_social_authority(soup, "https://example.com", "https://example.com")
+    sa002 = [f for f in findings if f['id'] == 'SA-002']
+    assert len(sa002) > 0
+
+def test_sa002_has_social_links():
+    html = "<html><body><a href='https://twitter.com/brand'>Twitter</a><a href='https://linkedin.com/company/brand'>LinkedIn</a></body></html>"
+    soup = BeautifulSoup(html, 'html.parser')
+    findings = analyze_social_authority(soup, "https://example.com", "https://example.com")
+    sa002 = [f for f in findings if f['id'] == 'SA-002']
+    assert len(sa002) == 0
+
+def test_sa005_no_about_page():
+    html = "<html><body><nav><a href='/'>Home</a><a href='/products'>Products</a></nav></body></html>"
+    soup = BeautifulSoup(html, 'html.parser')
+    findings = analyze_social_authority(soup, "https://example.com", "https://example.com")
+    sa005 = [f for f in findings if f['id'] == 'SA-005']
+    assert len(sa005) > 0

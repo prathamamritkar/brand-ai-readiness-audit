@@ -40,6 +40,14 @@
     {
       "id": "security-trust-audit",
       "path": "skills/security-trust-audit"
+    },
+    {
+      "id": "performance-audit",
+      "path": "skills/performance-audit"
+    },
+    {
+      "id": "social-authority-audit",
+      "path": "skills/social-authority-audit"
     }
   ]
 }

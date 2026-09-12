@@ -33,3 +33,4 @@ Use this skill to evaluate whether a website's security posture and trust signal
 
 ## Output
 A list of finding dicts matching the standard marketplace finding schema.
+

@@ -1,21 +1,23 @@
 # Brand AI-Readiness Audit Marketplace
 
-An Agent Skill Marketplace that diagnoses the underlying reasons why a brand is invisible to AI assistants and why human visitors fail to engage. It audits any website — across diverse industry verticals and horizontals — using 43 evidence-backed heuristics covering all failure modes that separate cited brands from ignored ones.
+An Agent Skill Marketplace that diagnoses the underlying reasons why a brand is invisible to AI assistants and why human visitors fail to engage. It audits any website — across diverse industry verticals and horizontals — using 57 evidence-backed heuristics covering all failure modes that separate cited brands from ignored ones.
 
 **Recommend-only**: This marketplace strictly audits and reports. No skill ever alters a live site.
 
 ## Architecture
 
-The marketplace decomposes the audit into **5 focused domain skills**, each answering a distinct diagnostic question, composed by a single **orchestrator entrypoint**:
+The marketplace decomposes the audit into **7 focused domain skills**, each answering a distinct diagnostic question, composed by a single **orchestrator entrypoint**:
 
 ```
 audit-orchestrator (entrypoint)
   │
-  ├─ 1. crawl-render-audit    → "Can AI crawlers reach and extract the content?"
-  ├─ 2. discoverability-audit → "Can AI identify WHO this brand is?"
-  ├─ 3. freshness-signals     → "Is the content trustworthy and temporally current?"
-  ├─ 4. engagement-audit      → "Will a human visitor stay and engage?"
-  └─ 5. security-trust-audit  → "Does the site signal credibility and trust?"
+  ├─ 1. crawl-render-audit     → "Can AI crawlers reach and extract the content?"
+  ├─ 2. discoverability-audit  → "Can AI identify WHO this brand is?"
+  ├─ 3. freshness-signals      → "Is the content trustworthy and temporally current?"
+  ├─ 4. engagement-audit       → "Will a human visitor stay and engage?"
+  ├─ 5. security-trust-audit   → "Does the site signal credibility and trust?"
+  ├─ 6. performance-audit      → "Is the page fast and lightweight for crawlers?"
+  └─ 7. social-authority-audit → "Does the brand show authoritative social proof?"
 ```
 
 ### Execution Order (Deliberate)
@@ -25,6 +27,8 @@ The orchestrator runs skills in strict diagnostic order optimized for AI agent c
 3. **Freshness** — evaluates temporal trust (builds on identity)
 4. **Engagement** — diagnoses human experience (meaningful only if content exists)
 5. **Security & Trust** — evaluates credibility signals (builds on all prior context)
+6. **Performance** — assesses page weight and load efficiency (affects crawl budget)
+7. **Social & Authority** — evaluates social proof and brand authority signals
 
 ### Multi-Page Crawl
 The orchestrator crawls the target URL **plus up to 5 internal pages** discovered via DOM link extraction. Findings are deduplicated across pages with attribution (e.g., `[Found on 4/6 pages crawled]`). Issues that exist on one specific page show the exact URL.
@@ -92,6 +96,25 @@ Covers: **Transport security, Security headers, Trust indicators**
 - Privacy policy / terms of service page links
 - Proactive: Referrer-Policy header
 
+### `performance-audit` (7 heuristics)
+Covers: **Page weight, Resource efficiency, Load optimization**
+- Excessive external scripts detection
+- Render-blocking resources in `<head>`
+- Inline HTML and CSS bloat analysis
+- Image lazy loading coverage
+- Resource hints (preconnect, dns-prefetch, preload)
+- Proactive: Web app manifest detection
+
+### `social-authority-audit` (7 heuristics)
+Covers: **Social proof, Brand authority, Contact visibility**
+- Review/rating structured data (AggregateRating, Review)
+- Social media profile links (Twitter, LinkedIn, YouTube, etc.)
+- Contact information visibility (email, phone, address)
+- Testimonial and case study signals
+- About/team page presence
+- ContactPoint/LocalBusiness schema
+- Proactive: Press/media/awards section detection
+
 ## Quick Start
 
 ### 1. Clone the repository
@@ -135,6 +158,8 @@ python skills/discoverability-audit/scripts/check_discoverability.py https://exa
 python skills/freshness-signals/scripts/check_freshness.py https://example.com
 python skills/engagement-audit/scripts/check_engagement.py https://example.com
 python skills/security-trust-audit/scripts/check_security_trust.py https://example.com
+python skills/performance-audit/scripts/check_performance.py https://example.com
+python skills/social-authority-audit/scripts/check_social_authority.py https://example.com
 ```
 
 ### 5. Run tests
@@ -165,7 +190,9 @@ pytest tests/ -v
       "discoverability": "warn",
       "freshness": "pass",
       "engagement": "warn",
-      "security_trust": "pass"
+      "security_trust": "pass",
+      "performance": "pass",
+      "social_authority": "warn"
     }
   },
   "findings": [

@@ -47,6 +47,8 @@ _discoverability = _load_module("check_discoverability", "skills/discoverability
 _freshness = _load_module("check_freshness", "skills/freshness-signals/scripts/check_freshness.py")
 _engagement = _load_module("check_engagement", "skills/engagement-audit/scripts/check_engagement.py")
 _security_trust = _load_module("check_security_trust", "skills/security-trust-audit/scripts/check_security_trust.py")
+_performance = _load_module("check_performance", "skills/performance-audit/scripts/check_performance.py")
+_social_authority = _load_module("check_social_authority", "skills/social-authority-audit/scripts/check_social_authority.py")
 
 # Maximum internal pages to crawl beyond the target URL
 MAX_INTERNAL_PAGES = 5
@@ -63,6 +65,8 @@ _PHASES = {
     "freshness":       {"prefix": "FR-",   "label": "Freshness"},
     "engagement":      {"prefix": "ENG-",  "label": "Engagement"},
     "security_trust":  {"prefix": "ST-",   "label": "Security & Trust"},
+    "performance":     {"prefix": "PA-",   "label": "Performance"},
+    "social_authority": {"prefix": "SA-",  "label": "Social & Authority"},
 }
 
 
@@ -102,10 +106,10 @@ def _run_skill(name, fn, *args, **kwargs):
 
 
 # ---------------------------------------------------------------------------
-# Run all 5 sub-skills on a single page context
+# Run all 7 sub-skills on a single page context
 # ---------------------------------------------------------------------------
 def _audit_single_page(ctx):
-    """Run all 5 sub-skills on a single PageContext and return findings."""
+    """Run all 7 sub-skills on a single PageContext and return findings."""
     soup = ctx["soup"]
     rp = ctx["robots_parser"]
     headers = ctx["response_headers"]
@@ -145,6 +149,18 @@ def _audit_single_page(ctx):
         _run_skill("security-trust-audit",
                     _security_trust.analyze_security_trust,
                     soup, headers, url, base_url)
+    )
+    # Phase 6 — Performance
+    findings.extend(
+        _run_skill("performance-audit",
+                    _performance.analyze_performance,
+                    soup, headers, url, base_url)
+    )
+    # Phase 7 — Social & Authority
+    findings.extend(
+        _run_skill("social-authority-audit",
+                    _social_authority.analyze_social_authority,
+                    soup, url, base_url)
     )
 
     return findings
