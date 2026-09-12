@@ -18,12 +18,14 @@ cr_module = load_module("check_crawl_render", os.path.join(BASE_DIR, r"skills\cr
 disc_module = load_module("check_discoverability", os.path.join(BASE_DIR, r"skills\discoverability-audit\scripts\check_discoverability.py"))
 fresh_module = load_module("check_freshness", os.path.join(BASE_DIR, r"skills\freshness-signals\scripts\check_freshness.py"))
 eng_module = load_module("check_engagement", os.path.join(BASE_DIR, r"skills\engagement-audit\scripts\check_engagement.py"))
+st_module = load_module("check_security_trust", os.path.join(BASE_DIR, r"skills\security-trust-audit\scripts\check_security_trust.py"))
 orch_module = load_module("run_audit", os.path.join(BASE_DIR, r"skills\audit-orchestrator\scripts\run_audit.py"))
 
 def analyze_crawl_render(*args, **kwargs): return cr_module.analyze_crawl_render(*args, **kwargs)
 def analyze_discoverability(*args, **kwargs): return disc_module.analyze_discoverability(*args, **kwargs)
 def analyze_freshness(*args, **kwargs): return fresh_module.analyze_freshness(*args, **kwargs)
 def analyze_engagement(*args, **kwargs): return eng_module.analyze_engagement(*args, **kwargs)
+def analyze_security_trust(*args, **kwargs): return st_module.analyze_security_trust(*args, **kwargs)
 def _compute_readiness_score(*args, **kwargs): return orch_module._compute_readiness_score(*args, **kwargs)
 def _validate_finding(*args, **kwargs): return orch_module._validate_finding(*args, **kwargs)
 
@@ -247,8 +249,42 @@ def test_clean_page_minimal_findings():
     disc_findings = analyze_discoverability(soup, "https://example.com/")
     fr_findings = analyze_freshness(soup, {}, "https://example.com/", "")
     eng_findings = analyze_engagement(soup, "https://example.com/")
+    st_findings = analyze_security_trust(soup, {"Strict-Transport-Security": "max-age=31536000", "X-Content-Type-Options": "nosniff", "X-Frame-Options": "DENY", "Referrer-Policy": "strict-origin-when-cross-origin"}, "https://example.com/", "https://example.com")
 
-    all_findings = cr_findings + disc_findings + fr_findings + eng_findings
+    all_findings = cr_findings + disc_findings + fr_findings + eng_findings + st_findings
 
     severe_findings = [f for f in all_findings if f['severity'] in ('critical', 'high')]
     assert len(severe_findings) == 0, f"Found severe findings: {severe_findings}"
+
+# --- Security & Trust Tests ---
+
+def test_st001_http_not_https():
+    html = "<html><body></body></html>"
+    soup = BeautifulSoup(html, 'html.parser')
+    findings = analyze_security_trust(soup, {}, "http://example.com", "http://example.com")
+    st001 = [f for f in findings if f['id'] == 'ST-001']
+    assert len(st001) > 0
+    assert st001[0]['severity'] == 'critical'
+
+def test_st002_missing_hsts():
+    html = "<html><body></body></html>"
+    soup = BeautifulSoup(html, 'html.parser')
+    # HTTPS but no HSTS header
+    findings = analyze_security_trust(soup, {}, "https://example.com", "https://example.com")
+    st002 = [f for f in findings if f['id'] == 'ST-002']
+    assert len(st002) > 0
+    assert st002[0]['severity'] == 'high'
+
+def test_st006_no_privacy_links():
+    html = "<html><body><a href='/about'>About</a><a href='/contact'>Contact</a></body></html>"
+    soup = BeautifulSoup(html, 'html.parser')
+    findings = analyze_security_trust(soup, {}, "https://example.com", "https://example.com")
+    st006 = [f for f in findings if f['id'] == 'ST-006']
+    assert len(st006) > 0
+
+def test_st006_has_privacy_link():
+    html = "<html><body><footer><a href='/privacy'>Privacy Policy</a></footer></body></html>"
+    soup = BeautifulSoup(html, 'html.parser')
+    findings = analyze_security_trust(soup, {}, "https://example.com", "https://example.com")
+    st006 = [f for f in findings if f['id'] == 'ST-006']
+    assert len(st006) == 0

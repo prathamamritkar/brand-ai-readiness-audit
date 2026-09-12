@@ -36,6 +36,10 @@
     {
       "id": "engagement-audit",
       "path": "skills/engagement-audit"
+    },
+    {
+      "id": "security-trust-audit",
+      "path": "skills/security-trust-audit"
     }
   ]
 }

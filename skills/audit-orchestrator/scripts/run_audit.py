@@ -46,6 +46,7 @@ _crawl_render = _load_module("check_crawl_render", "skills/crawl-render-audit/sc
 _discoverability = _load_module("check_discoverability", "skills/discoverability-audit/scripts/check_discoverability.py")
 _freshness = _load_module("check_freshness", "skills/freshness-signals/scripts/check_freshness.py")
 _engagement = _load_module("check_engagement", "skills/engagement-audit/scripts/check_engagement.py")
+_security_trust = _load_module("check_security_trust", "skills/security-trust-audit/scripts/check_security_trust.py")
 
 # Maximum internal pages to crawl beyond the target URL
 MAX_INTERNAL_PAGES = 5
@@ -61,6 +62,7 @@ _PHASES = {
     "discoverability": {"prefix": "DISC-", "label": "Discoverability"},
     "freshness":       {"prefix": "FR-",   "label": "Freshness"},
     "engagement":      {"prefix": "ENG-",  "label": "Engagement"},
+    "security_trust":  {"prefix": "ST-",   "label": "Security & Trust"},
 }
 
 
@@ -100,10 +102,10 @@ def _run_skill(name, fn, *args, **kwargs):
 
 
 # ---------------------------------------------------------------------------
-# Run all 4 sub-skills on a single page context
+# Run all 5 sub-skills on a single page context
 # ---------------------------------------------------------------------------
 def _audit_single_page(ctx):
-    """Run all 4 sub-skills on a single PageContext and return findings."""
+    """Run all 5 sub-skills on a single PageContext and return findings."""
     soup = ctx["soup"]
     rp = ctx["robots_parser"]
     headers = ctx["response_headers"]
@@ -137,6 +139,12 @@ def _audit_single_page(ctx):
         _run_skill("engagement-audit",
                     _engagement.analyze_engagement,
                     soup, url)
+    )
+    # Phase 5 — Security & Trust
+    findings.extend(
+        _run_skill("security-trust-audit",
+                    _security_trust.analyze_security_trust,
+                    soup, headers, url, base_url)
     )
 
     return findings

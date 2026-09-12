@@ -1,12 +1,12 @@
 # Brand AI-Readiness Audit Marketplace
 
-An Agent Skill Marketplace that diagnoses the underlying reasons why a brand is invisible to AI assistants and why human visitors fail to engage. It audits any website — across diverse industry verticals and horizontals — using 36 evidence-backed heuristics covering all failure modes that separate cited brands from ignored ones.
+An Agent Skill Marketplace that diagnoses the underlying reasons why a brand is invisible to AI assistants and why human visitors fail to engage. It audits any website — across diverse industry verticals and horizontals — using 43 evidence-backed heuristics covering all failure modes that separate cited brands from ignored ones.
 
 **Recommend-only**: This marketplace strictly audits and reports. No skill ever alters a live site.
 
 ## Architecture
 
-The marketplace decomposes the audit into **4 focused domain skills**, each answering a distinct diagnostic question, composed by a single **orchestrator entrypoint**:
+The marketplace decomposes the audit into **5 focused domain skills**, each answering a distinct diagnostic question, composed by a single **orchestrator entrypoint**:
 
 ```
 audit-orchestrator (entrypoint)
@@ -14,7 +14,8 @@ audit-orchestrator (entrypoint)
   ├─ 1. crawl-render-audit    → "Can AI crawlers reach and extract the content?"
   ├─ 2. discoverability-audit → "Can AI identify WHO this brand is?"
   ├─ 3. freshness-signals     → "Is the content trustworthy and temporally current?"
-  └─ 4. engagement-audit      → "Will a human visitor stay and engage?"
+  ├─ 4. engagement-audit      → "Will a human visitor stay and engage?"
+  └─ 5. security-trust-audit  → "Does the site signal credibility and trust?"
 ```
 
 ### Execution Order (Deliberate)
@@ -23,6 +24,7 @@ The orchestrator runs skills in strict diagnostic order optimized for AI agent c
 2. **Discoverability** — analyzes structured identity (builds on access)
 3. **Freshness** — evaluates temporal trust (builds on identity)
 4. **Engagement** — diagnoses human experience (meaningful only if content exists)
+5. **Security & Trust** — evaluates credibility signals (builds on all prior context)
 
 ### Multi-Page Crawl
 The orchestrator crawls the target URL **plus up to 5 internal pages** discovered via DOM link extraction. Findings are deduplicated across pages with attribution (e.g., `[Found on 4/6 pages crawled]`). Issues that exist on one specific page show the exact URL.
@@ -81,6 +83,15 @@ Covers: **Weak on-site orientation, No context retention**
 - Unlabeled interactive elements
 - Proactive: viewport meta tag for mobile
 
+### `security-trust-audit` (7 heuristics)
+Covers: **Transport security, Security headers, Trust indicators**
+- HTTPS enforcement
+- HSTS (Strict-Transport-Security) header
+- Content-Security-Policy header
+- X-Content-Type-Options and X-Frame-Options headers
+- Privacy policy / terms of service page links
+- Proactive: Referrer-Policy header
+
 ## Quick Start
 
 ### 1. Clone the repository
@@ -123,6 +134,7 @@ python skills/crawl-render-audit/scripts/check_crawl_render.py https://example.c
 python skills/discoverability-audit/scripts/check_discoverability.py https://example.com
 python skills/freshness-signals/scripts/check_freshness.py https://example.com
 python skills/engagement-audit/scripts/check_engagement.py https://example.com
+python skills/security-trust-audit/scripts/check_security_trust.py https://example.com
 ```
 
 ### 5. Run tests
@@ -152,7 +164,8 @@ pytest tests/ -v
       "crawl_render": "fail",
       "discoverability": "warn",
       "freshness": "pass",
-      "engagement": "warn"
+      "engagement": "warn",
+      "security_trust": "pass"
     }
   },
   "findings": [
