@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Brand AI-Readiness Audit Engine v2.1
-Zero-dependency, deterministic, read-only.
-Python 3.9+ standard library only.
+Brand AI-Readiness Audit Engine v3.0
+Deterministic, read-only. Python 3.9+ standard library only.
+Findings tagged with gap_type: indexing | citation | engagement.
 """
 
 import argparse
@@ -21,36 +21,42 @@ import zlib
 from html.parser import HTMLParser
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-USER_AGENT = "Mozilla/5.0 (compatible; BrandAIReadinessAuditBot/2.1; +https://agentskills.io)"
+USER_AGENT = "Mozilla/5.0 (compatible; BrandAIReadinessAuditBot/3.0; +https://agentskills.io)"
 AI_BOTS = {"gptbot", "claudebot", "perplexitybot", "google-extended",
            "bytespider", "ccbot", "anthropic-ai", "cohere-ai"}
 FRAMEWORK_MARKERS = ["data-reactroot", "data-reactid", "__nuxt", "data-vue",
                      "ng-app", "data-nextjs-page", "data-sveltekit",
                      "data-astro-cid", "data-qid"]
-UI_BRIDGE_SIGNALS = ["ai-banner", "intent-bridge", "assistant-context",
-                     "chat-landing", "ref-banner"]
-ANCHOR_PATTERNS = {"spec", "specification", "price", "pricing", "feature",
-                   "detail", "material", "size", "review", "availability", "buy"}
-HARD_TIMEOUT = 280.0
+# Pattern-driven; no hardcoded site-specific class names
+REFERRER_PATTERNS = ["document.referrer", "urlsearchparams", "location.search",
+                     "sessionstorage", "localstorage.getitem"]
+TRANSACTIONAL_VERBS = ["buy", "order", "get", "download", "contact",
+                       "start", "try", "sign up", "request", "book", "purchase"]
+HARD_TIMEOUT = 300.0
 
 
 class DOMExtractor(HTMLParser):
-    """Extracts text, schema, links, and structure. Counts <noscript> text as visible."""
+    """Extracts text, schema, links, and structure."""
 
     def __init__(self):
         super().__init__()
         self.text_chunks: List[str] = []
+        self.noscript_chunks: List[str] = []
         self.external_script_bytes: int = 0
         self.inline_scripts: List[str] = []
         self.json_ld_scripts: List[str] = []
-        self.element_ids: Set[str] = set()
+        self.element_ids: List[str] = []  # ordered list preserves DOM position
         self.links: Set[str] = set()
         self.meta_tags: List[Dict[str, str]] = []
         self.title: str = ""
+        self.meta_description: str = ""
         self.canonical: str = ""
+        self.hreflang_tags: List[Dict[str, str]] = []
         self.og_tags: Dict[str, str] = {}
         self.semantic_counts: Dict[str, int] = {}
         self.heading_counts: Dict[str, int] = {}
+        self.block_element_count: int = 0  # proxy for DOM depth
+        self.transactional_elements: List[Tuple[str, int]] = []  # (text, dom_position)
         self._in_script = False
         self._in_json_ld = False
         self._in_title = False
@@ -58,41 +64,59 @@ class DOMExtractor(HTMLParser):
         self._script_buffer: List[str] = []
 
     def handle_starttag(self, tag: str, attrs: List[Tuple[str, Optional[str]]]):
-        if self._in_noscript:
-            return
         attr = {k.lower(): (v or "") for k, v in attrs}
 
-        if tag in {"header", "nav", "main", "article", "section", "aside", "footer"}:
-            self.semantic_counts[tag] = self.semantic_counts.get(tag, 0) + 1
-        if tag in {"h1", "h2", "h3", "h4", "h5", "h6"}:
-            self.heading_counts[tag] = self.heading_counts.get(tag, 0) + 1
-        if attr.get("id"):
-            self.element_ids.add(attr["id"])
+        if not self._in_noscript:
+            if tag in {"header", "nav", "main", "article", "section", "aside", "footer",
+                       "div", "p", "li", "tr"}:
+                self.semantic_counts[tag] = self.semantic_counts.get(tag, 0) + 1
+                self.block_element_count += 1
+            if tag in {"h1", "h2", "h3", "h4", "h5", "h6"}:
+                self.heading_counts[tag] = self.heading_counts.get(tag, 0) + 1
+            if attr.get("id"):
+                self.element_ids.append(attr["id"])
 
-        if tag == "script":
-            self._in_script = True
-            if attr.get("type", "").lower() == "application/ld+json":
-                self._in_json_ld = True
-            elif attr.get("src"):
-                src = attr["src"]
-                self.external_script_bytes += len(src.encode("utf-8")) * 50
-            else:
-                self._script_buffer = []
+            if tag == "script":
+                self._in_script = True
+                if attr.get("type", "").lower() == "application/ld+json":
+                    self._in_json_ld = True
+                elif attr.get("src"):
+                    self.external_script_bytes += len(attr["src"].encode("utf-8")) * 50
+                else:
+                    self._script_buffer = []
+            elif tag in {"a", "button"}:
+                href = attr.get("href", "")
+                if href:
+                    self.links.add(href)
+                label = (attr.get("aria-label", "") or "").lower()
+                self.transactional_elements.append((
+                    label, self.block_element_count
+                ))
+            elif tag == "meta":
+                name = attr.get("name", "").lower()
+                prop = attr.get("property", "").lower()
+                content = attr.get("content", "")
+                self.meta_tags.append({"name": name, "property": prop, "content": content})
+                if prop.startswith("og:"):
+                    self.og_tags[prop] = content
+                if name == "description":
+                    self.meta_description = content
+            elif tag == "link":
+                rel = attr.get("rel", "").lower()
+                if rel == "canonical" and attr.get("href"):
+                    self.canonical = attr["href"]
+                elif rel == "alternate" and attr.get("hreflang"):
+                    self.hreflang_tags.append({
+                        "hreflang": attr["hreflang"],
+                        "href": attr.get("href", "")
+                    })
+            elif tag == "title":
+                self._in_title = True
         elif tag == "noscript":
+            pass  # handled in endtag
+
+        if tag == "noscript":
             self._in_noscript = True
-        elif tag == "a" and attr.get("href"):
-            self.links.add(attr["href"])
-        elif tag == "meta":
-            name = attr.get("name", "").lower()
-            prop = attr.get("property", "").lower()
-            content = attr.get("content", "")
-            self.meta_tags.append({"name": name, "property": prop, "content": content})
-            if prop.startswith("og:"):
-                self.og_tags[prop] = content
-        elif tag == "link" and attr.get("rel", "").lower() == "canonical" and attr.get("href"):
-            self.canonical = attr["href"]
-        elif tag == "title":
-            self._in_title = True
 
     def handle_endtag(self, tag: str):
         if tag == "script":
@@ -119,6 +143,8 @@ class DOMExtractor(HTMLParser):
             self._script_buffer.append(clean)
         elif self._in_title:
             self.title += clean
+        elif self._in_noscript:
+            self.noscript_chunks.append(clean)
         else:
             self.text_chunks.append(clean)
 
@@ -127,6 +153,9 @@ class DOMExtractor(HTMLParser):
 
     def get_word_count(self) -> int:
         return len(self.get_plain_text().split())
+
+    def get_noscript_text(self) -> str:
+        return " ".join(self.noscript_chunks)
 
     def get_meta_robots(self) -> List[str]:
         directives: Set[str] = set()
@@ -139,7 +168,7 @@ class DOMExtractor(HTMLParser):
 class AuditEngine:
     """Deterministic orchestrator."""
 
-    def __init__(self, base_url: str, max_pages: int = 5, timeout: int = 15):
+    def __init__(self, base_url: str, max_pages: int = 5, timeout: int = 10):
         self.base_url = base_url.rstrip("/")
         self.parsed = urllib.parse.urlparse(self.base_url)
         self.domain = self.parsed.netloc or self.parsed.path
@@ -147,9 +176,11 @@ class AuditEngine:
         self.timeout = timeout
         self.findings: List[Dict[str, Any]] = []
         self.finding_counter = 1
+        self._seen_checks: Set[str] = set()  # dedup by (url, check_id)
         self.robots: Optional[urllib.robotparser.RobotFileParser] = None
         self.crawl_delay = 0.0
         self.page_data: Dict[str, Dict[str, Any]] = {}
+        self.crawl_errors: List[Dict[str, str]] = []
         self.ssl_ctx = ssl._create_unverified_context()
         self.start_time = 0.0
         self._timed_out = False
@@ -161,9 +192,9 @@ class AuditEngine:
                 self._add_finding(
                     "Audit Curtailed by Runtime Budget",
                     "medium", "discoverability", self.base_url,
-                    f"Approached {int(HARD_TIMEOUT)}s hard timeout.",
-                    "Improve site TTFB to allow complete auditing.",
-                    "medium"
+                    f"Approached {int(HARD_TIMEOUT)}s total runtime budget; remaining checks skipped.",
+                    "Improve site TTFB and reduce crawl-delay to allow complete auditing.",
+                    "medium", "indexing", "site"
                 )
             return True
         return False
@@ -207,19 +238,27 @@ class AuditEngine:
         return urllib.parse.urlparse(url).netloc.lower() == self.parsed.netloc.lower()
 
     def _add_finding(self, title: str, severity: str, category: str, url: str,
-                     evidence: str, action_summary: str, action_priority: str):
+                     evidence: str, action_summary: str, action_priority: str,
+                     gap_type: str = "citation", scope: str = "page",
+                     check_id: str = ""):
+        dedup_key = f"{url}::{check_id or title}"
+        if dedup_key in self._seen_checks:
+            return
+        self._seen_checks.add(dedup_key)
         fid = f"F-{self.finding_counter:03d}"
         self.finding_counter += 1
         self.findings.append({
             "id": fid,
             "title": title,
             "severity": severity.lower(),
+            "gap_type": gap_type,
             "category": category,
             "url": url,
             "evidence": evidence,
             "suggested_action": {
                 "summary": action_summary,
-                "priority": action_priority.lower()
+                "priority": action_priority.lower(),
+                "scope": scope
             }
         })
 
@@ -231,9 +270,9 @@ class AuditEngine:
             self._add_finding(
                 "Missing or Unreachable robots.txt",
                 "medium", "discoverability", robots_url,
-                f"GET returned HTTP {status or 'Unreachable'}.",
-                "Deploy robots.txt with explicit AI crawler policies.",
-                "medium"
+                f"GET returned HTTP {status or 'Unreachable'}. AI crawler posture unknown.",
+                "Deploy robots.txt with explicit Allow/Disallow directives for AI crawlers.",
+                "medium", "indexing", "site", "robots_txt_missing"
             )
             return
 
@@ -244,11 +283,11 @@ class AuditEngine:
         blocked = [b for b in AI_BOTS if not self.robots.can_fetch(b, "/")]
         if blocked:
             self._add_finding(
-                "AI Assistants Blocked in robots.txt",
+                "AI Crawlers Blocked in robots.txt",
                 "critical", "discoverability", robots_url,
-                f"Disallow detected for: {', '.join(blocked)}.",
-                "Add Allow rules for verified AI user-agents.",
-                "critical"
+                f"Disallow on root detected for: {', '.join(sorted(blocked))}.",
+                "Add explicit Allow: / rules for each blocked AI user-agent token.",
+                "critical", "indexing", "site", "robots_ai_blocked"
             )
 
         for line in text.lower().splitlines():
@@ -264,21 +303,22 @@ class AuditEngine:
         status, _, content = self.fetch_url(llms_url)
         if status != 200 or not content:
             self._add_finding(
-                "Missing /llms.txt Machine-Readable Endpoint",
+                "Missing /llms.txt Machine-Readable Manifest",
                 "medium", "discoverability", llms_url,
                 f"GET returned HTTP {status or 'Unreachable'}.",
-                "Publish /llms.txt with Markdown entity catalog.",
-                "medium"
+                "Publish /llms.txt — a Markdown-structured entity catalog for AI crawlers.",
+                "medium", "citation", "site", "llms_txt_missing"
             )
             return
         decoded = content.decode("utf-8", errors="ignore").strip()
+        first_line = decoded.splitlines()[0] if decoded else ""
         if len(decoded) < 50 or not decoded.startswith("#"):
             self._add_finding(
                 "Malformed /llms.txt Manifest",
                 "medium", "discoverability", llms_url,
-                f"Present but lacks Markdown hierarchy ({len(decoded)} bytes).",
-                "Format with H1/H2 groupings per llms.txt spec.",
-                "medium"
+                f"Present ({len(decoded)} bytes) but body does not start with '#'. First line: {first_line!r}",
+                "Format /llms.txt with # H1 brand name and ## H2 section groupings.",
+                "medium", "citation", "site", "llms_txt_malformed"
             )
 
     def crawl_and_extract(self) -> Dict[str, Dict[str, Any]]:
@@ -297,10 +337,11 @@ class AuditEngine:
                 continue
 
             if self.crawl_delay > 0:
-                time.sleep(self.crawl_delay)
+                time.sleep(min(self.crawl_delay, 5.0))  # cap to avoid budget bleed
 
             status, headers, content = self.fetch_url(url)
             if status != 200 or not content:
+                self.crawl_errors.append({"url": url, "error": f"HTTP {status or 'Unreachable'}"})
                 continue
 
             try:
@@ -309,13 +350,15 @@ class AuditEngine:
                 parser.feed(html)
 
                 low = html.lower()
+                has_framework = any(m in low for m in FRAMEWORK_MARKERS)
                 results[norm] = {
+                    "url": url,
                     "status": status,
                     "headers": headers,
                     "parser": parser,
                     "schema_nodes": None,
-                    "has_framework": any(m in low for m in FRAMEWORK_MARKERS),
-                    "has_ui_bridge": any(s in low for s in UI_BRIDGE_SIGNALS),
+                    "malformed_ld": [],  # populated by _get_schema
+                    "has_framework": has_framework,
                 }
 
                 for raw in parser.links:
@@ -323,7 +366,9 @@ class AuditEngine:
                     rnorm = self._normalize(resolved)
                     if self._is_internal(resolved) and rnorm not in visited:
                         path = urllib.parse.urlparse(resolved).path.lower()
-                        if any(ext in path for ext in [".jpg", ".jpeg", ".png", ".gif", ".pdf", ".zip", ".css", ".js"]):
+                        if any(ext in path for ext in [".jpg", ".jpeg", ".png", ".gif",
+                                                       ".pdf", ".zip", ".css", ".js", ".svg",
+                                                       ".webp", ".woff", ".woff2"]):
                             continue
                         visited.add(rnorm)
                         queue.append(resolved)
@@ -335,16 +380,22 @@ class AuditEngine:
     def _get_schema(self, data: Dict[str, Any]) -> List[Dict[str, Any]]:
         if data["schema_nodes"] is None:
             nodes: List[Dict[str, Any]] = []
+            malformed: List[str] = []
             for raw in data["parser"].json_ld_scripts:
                 try:
                     parsed = json.loads(raw)
                     if isinstance(parsed, list):
                         nodes.extend(d for d in parsed if isinstance(d, dict))
                     elif isinstance(parsed, dict):
-                        nodes.append(parsed)
-                except Exception:
-                    continue
+                        # unwrap @graph if present
+                        if "@graph" in parsed and isinstance(parsed["@graph"], list):
+                            nodes.extend(d for d in parsed["@graph"] if isinstance(d, dict))
+                        else:
+                            nodes.append(parsed)
+                except (json.JSONDecodeError, ValueError) as e:
+                    malformed.append(f"{str(e)[:80]} | snippet: {raw[:100]!r}")
             data["schema_nodes"] = nodes
+            data["malformed_ld"] = malformed
         return data["schema_nodes"]
 
     def _has_type(self, nodes: List[Dict[str, Any]], types: Set[str]) -> bool:
@@ -357,112 +408,182 @@ class AuditEngine:
     def check_crawl_render(self, url: str, data: Dict[str, Any]):
         parser = data["parser"]
         headers = data["headers"]
+        words = parser.get_word_count()
 
+        # --- Indexing checks ---
         meta = parser.get_meta_robots()
         xrob = headers.get("x-robots-tag", "").lower()
         if "noindex" in meta or "none" in meta:
             self._add_finding(
                 "Meta Robots Blocks Indexing", "critical", "discoverability", url,
-                f'<meta name="robots" content={",".join(meta)}>',
-                "Remove noindex/none from public pages.", "critical"
+                f'<meta name="robots" content="{",".join(meta)}">',
+                "Remove noindex/none from public pages.",
+                "critical", "indexing", "page", f"meta_noindex:{url}"
             )
         if "noindex" in xrob:
             self._add_finding(
                 "X-Robots-Tag Blocks Indexing", "critical", "discoverability", url,
-                f"Header: {headers['x-robots-tag']}",
-                "Remove X-Robots-Tag noindex.", "critical"
+                f"X-Robots-Tag: {headers['x-robots-tag']}",
+                "Remove noindex directive from X-Robots-Tag header.",
+                "critical", "indexing", "page", f"xrobot_noindex:{url}"
             )
 
-        words = parser.get_word_count()
-        script_bytes = parser.external_script_bytes + sum(len(s.encode("utf-8")) for s in parser.inline_scripts)
+        script_bytes = parser.external_script_bytes + sum(
+            len(s.encode("utf-8")) for s in parser.inline_scripts
+        )
         if words < 150 and script_bytes > 40000:
-            ev = f"Static HTML: {words} words, scripts: {script_bytes} bytes."
+            ev = f"Visible text: {words} words; script payload: {script_bytes} bytes."
             if data["has_framework"]:
-                ev += " Hydration markers found."
+                ev += " Framework hydration markers detected in raw HTML."
             self._add_finding(
                 "Client-Side Rendering Barrier", "high", "discoverability", url,
-                ev, "Implement SSR or dynamic pre-rendering for AI crawlers.", "high"
+                ev, "Implement SSR or pre-rendering so crawlers receive static HTML.",
+                "high", "indexing", "site", f"csr_barrier:{url}"
             )
+
+        canonical = parser.canonical
+        if canonical and words > 100:
+            norm_canon = self._normalize(canonical)
+            norm_current = self._normalize(url)
+            if norm_canon != norm_current:
+                self._add_finding(
+                    "Canonical Points Away from Page", "medium", "discoverability", url,
+                    f"rel=canonical href='{canonical}' differs from current URL '{url}'.",
+                    "Ensure canonical points to the authoritative URL for this content.",
+                    "medium", "indexing", "page", f"canonical_drift:{url}"
+                )
+        elif not canonical and words > 100:
+            self._add_finding(
+                "Missing Canonical Tag", "medium", "discoverability", url,
+                "Content page (>100 words) lacks rel=canonical link tag.",
+                "Add a self-referencing canonical tag on every content page.",
+                "medium", "indexing", "page", f"canonical_missing:{url}"
+            )
+
+        # --- Citation checks ---
+        nodes = self._get_schema(data)
+        for err in data.get("malformed_ld", []):
+            self._add_finding(
+                "Malformed JSON-LD Block", "medium", "discoverability", url,
+                f"JSON parse failed: {err}",
+                "Validate JSON-LD blocks with schema.org validator; fix syntax errors.",
+                "medium", "citation", "page", f"malformed_ld:{url}:{err[:40]}"
+            )
+
+        if not nodes and not data.get("malformed_ld"):
+            self._add_finding(
+                "Zero JSON-LD Structured Data", "high", "discoverability", url,
+                "No application/ld+json blocks found.",
+                "Add at minimum Organization and BreadcrumbList schema; add Product/Offer on commerce pages.",
+                "high", "citation", "page", f"no_jsonld:{url}"
+            )
+        elif nodes:
+            has_product = self._has_type(nodes, {"product"})
+            has_org = self._has_type(nodes, {"organization", "brand", "corporation"})
+            text = parser.get_plain_text().lower()
+            import re as _re
+            commerce = bool(_re.search(r'[$€£₹]\s*\d|buy now|add to cart|shop now', text))
+
+            if commerce and not has_product:
+                self._add_finding(
+                    "Commerce Signals Without Product Schema", "high", "discoverability", url,
+                    "Price or purchase-intent text detected but no Product/Offer JSON-LD.",
+                    "Add Product with Offer (price, priceCurrency, availability) schema.",
+                    "high", "citation", "page", f"commerce_no_schema:{url}"
+                )
+
+            if not self._has_type(nodes, {"breadcrumblist"}) and url != self.base_url:
+                self._add_finding(
+                    "Missing BreadcrumbList Schema", "medium", "discoverability", url,
+                    "No BreadcrumbList found on non-root page.",
+                    "Add BreadcrumbList to preserve navigation context for AI extractors.",
+                    "medium", "citation", "page", f"no_breadcrumb:{url}"
+                )
+            if url == self.base_url and not self._has_type(nodes, {"website"}):
+                self._add_finding(
+                    "Missing WebSite Schema on Root", "medium", "discoverability", url,
+                    "Root page lacks WebSite JSON-LD.",
+                    "Add WebSite schema with url and potentialAction SearchAction.",
+                    "medium", "citation", "site", "no_website_schema"
+                )
 
         if parser.semantic_counts.get("main", 0) == 0 and parser.semantic_counts.get("article", 0) == 0:
             self._add_finding(
                 "Missing Semantic Landmarks", "medium", "discoverability", url,
-                "No <main> or <article> tags; RAG chunking struggles.",
-                "Wrap primary content in semantic elements.", "medium"
+                "No <main> or <article> element; AI RAG chunkers struggle with undifferentiated content.",
+                "Wrap primary content in <main> or <article>.",
+                "medium", "citation", "page", f"no_landmarks:{url}"
             )
 
         h1 = parser.heading_counts.get("h1", 0)
         if h1 == 0:
             self._add_finding(
                 "Missing H1 Heading", "medium", "discoverability", url,
-                "No h1 tag found.",
-                "Add one descriptive h1 per page.", "medium"
+                "No <h1> tag found.",
+                "Add one descriptive <h1> per page that reflects the primary topic.",
+                "medium", "citation", "page", f"no_h1:{url}"
             )
         elif h1 > 1:
             self._add_finding(
                 "Multiple H1 Headings", "medium", "discoverability", url,
-                f"Found {h1} h1 tags.",
-                "Consolidate to exactly one h1.", "medium"
+                f"{h1} <h1> tags found; ambiguous primary topic for AI extractors.",
+                "Consolidate to exactly one <h1>.",
+                "medium", "citation", "page", f"multi_h1:{url}"
             )
 
-        nodes = self._get_schema(data)
-        if not nodes:
+        if not parser.title:
             self._add_finding(
-                "Zero JSON-LD Structured Data", "high", "discoverability", url,
-                "No application/ld+json blocks.",
-                "Inject Organization, Brand, Product, Offer, BreadcrumbList schema.", "high"
+                "Missing <title> Tag", "high", "discoverability", url,
+                "<title> element absent or empty.",
+                "Add a descriptive <title>; it is the primary AI snippet surface.",
+                "high", "citation", "page", f"no_title:{url}"
             )
-        else:
-            has_product = self._has_type(nodes, {"product"})
-            has_org = self._has_type(nodes, {"organization", "brand", "corporation"})
-            text = parser.get_plain_text().lower()
-            commerce = any(k in text for k in ["$", "€", "£", "₹", "buy now", "add to cart"])
 
-            if commerce and not has_product:
-                self._add_finding(
-                    "Commerce Signals Without Product Schema", "high", "discoverability", url,
-                    "Price/purchase text present but no Product JSON-LD.",
-                    "Add Product and Offer schema with price and availability.", "high"
-                )
-            elif not has_product and not has_org:
-                self._add_finding(
-                    "Missing Core Entity Schema", "medium", "discoverability", url,
-                    "JSON-LD lacks Product, Organization, or Brand.",
-                    "Add primary entity definitions.", "medium"
-                )
+        if not parser.meta_description:
+            self._add_finding(
+                "Missing Meta Description", "medium", "discoverability", url,
+                "<meta name=\"description\"> absent or empty.",
+                "Add a 120–160 character meta description; used by AI for answer context.",
+                "medium", "citation", "page", f"no_meta_desc:{url}"
+            )
 
-            if not self._has_type(nodes, {"breadcrumblist"}):
-                self._add_finding(
-                    "Missing BreadcrumbList Schema", "medium", "discoverability", url,
-                    "No BreadcrumbList found.",
-                    "Implement BreadcrumbList to preserve navigation context.", "medium"
-                )
-            if not self._has_type(nodes, {"speakablespecification"}):
-                self._add_finding(
-                    "Missing SpeakableSpecification Schema", "medium", "discoverability", url,
-                    "No SpeakableSpecification markup.",
-                    "Add cssSelector targets for key content blocks.", "medium"
-                )
-            if url == self.base_url and not self._has_type(nodes, {"website"}):
-                self._add_finding(
-                    "Missing WebSite Schema", "medium", "discoverability", url,
-                    "Root page lacks WebSite JSON-LD.",
-                    "Add WebSite schema with url and SearchAction.", "medium"
-                )
-
-        if not parser.og_tags.get("og:title") or not parser.og_tags.get("og:description"):
+        og_missing = [k for k in ["og:title", "og:description"] if not parser.og_tags.get(k)]
+        if len(og_missing) == 2:
+            self._add_finding(
+                "Open Graph Tags Absent", "high", "discoverability", url,
+                "og:title and og:description both missing.",
+                "Add og:title, og:description, and og:image for AI preview and knowledge graph consensus.",
+                "high", "citation", "page", f"no_og:{url}"
+            )
+        elif og_missing:
             self._add_finding(
                 "Incomplete Open Graph Tags", "medium", "discoverability", url,
-                f"OG keys present: {list(parser.og_tags.keys())}.",
-                "Add og:title and og:description for knowledge graph consensus.", "medium"
+                f"Missing: {', '.join(og_missing)}.",
+                "Complete Open Graph tag set: og:title, og:description, og:image.",
+                "medium", "citation", "page", f"partial_og:{url}"
             )
 
+        # hreflang x-default check (root only)
+        if url == self.base_url and parser.hreflang_tags:
+            has_xdefault = any(t["hreflang"].lower() == "x-default" for t in parser.hreflang_tags)
+            if not has_xdefault:
+                self._add_finding(
+                    "Missing hreflang x-default", "medium", "discoverability", url,
+                    f"hreflang alternate tags present ({len(parser.hreflang_tags)}) but no x-default.",
+                    "Add <link rel=\"alternate\" hreflang=\"x-default\"> to declare the canonical language fallback.",
+                    "medium", "citation", "site", "no_hreflang_xdefault"
+                )
+
     def check_freshness(self, url: str, data: Dict[str, Any]):
+        import datetime as _dt
         parser = data["parser"]
         headers = data["headers"]
         nodes = self._get_schema(data)
+        words = parser.get_word_count()
+        is_content_page = words > 150 or parser.heading_counts.get("h1", 0) > 0
 
         has_temporal = False
+        temporal_value: Optional[str] = None
         has_sameas = False
         has_org = False
         has_disambig = False
@@ -471,88 +592,168 @@ class AuditEngine:
             t = str(node.get("@type", "")).lower()
             if any(x in t for x in {"organization", "brand", "corporation", "localbusiness"}):
                 has_org = True
-                if node.get("sameAs"):
+                same = node.get("sameAs")
+                # sameAs must contain at least one external URL
+                if same and any(
+                    urllib.parse.urlparse(s).netloc != self.parsed.netloc
+                    for s in (same if isinstance(same, list) else [same])
+                ):
                     has_sameas = True
                 if node.get("disambiguatingDescription"):
                     has_disambig = True
-            if node.get("dateModified") or node.get("datePublished"):
+            dm = node.get("dateModified") or node.get("datePublished")
+            if dm:
                 has_temporal = True
+                temporal_value = str(dm)
 
         if has_org and not has_sameas:
             self._add_finding(
-                "Missing sameAs Knowledge Graph Bindings", "medium", "discoverability", url,
-                "Organization/Brand schema lacks sameAs links.",
-                "Link to Wikidata, Wikipedia, and authority nodes via sameAs.", "medium"
+                "Missing sameAs Knowledge Graph Anchors", "medium", "discoverability", url,
+                "Organization/Brand JSON-LD lacks sameAs links to external authority nodes.",
+                "Add sameAs links to Wikidata, Wikipedia, LinkedIn, or Crunchbase for this brand.",
+                "medium", "citation", "brand", f"no_sameas:{url}"
             )
         if has_org and not has_disambig:
             self._add_finding(
                 "Missing disambiguatingDescription", "medium", "discoverability", url,
-                "Brand entity lacks disambiguatingDescription.",
-                "Add a concise statement to prevent LLM homonym conflation.", "medium"
+                "Brand entity JSON-LD lacks disambiguatingDescription.",
+                "Add a 1–2 sentence disambiguatingDescription to prevent AI homonym conflation.",
+                "medium", "citation", "brand", f"no_disambig:{url}"
             )
-        if not has_temporal and "last-modified" not in headers:
+
+        lm_header = headers.get("last-modified", "")
+        if not has_temporal and not lm_header and is_content_page:
             self._add_finding(
                 "Missing Temporal Freshness Signals", "medium", "discoverability", url,
-                "No dateModified/datePublished in schema and no Last-Modified header.",
-                "Add ISO 8601 timestamps in JSON-LD and HTTP headers.", "medium"
+                "No dateModified/datePublished in JSON-LD and no Last-Modified HTTP header on a content page.",
+                "Add dateModified in JSON-LD and configure Last-Modified HTTP header.",
+                "medium", "citation", "page", f"no_temporal:{url}"
             )
 
-        if not parser.canonical and (parser.heading_counts.get("h1", 0) > 0 or parser.get_word_count() > 200):
-            self._add_finding(
-                "Missing Canonical Tag", "medium", "discoverability", url,
-                "Content page lacks rel=canonical.",
-                "Add self-referencing canonical tags to prevent duplicate fragmentation.", "medium"
-            )
+        # Stale date check: flag if date is present but > 365 days old on a page with price signals
+        if temporal_value or lm_header:
+            import re as _re
+            text = parser.get_plain_text()
+            has_price = bool(_re.search(r'[$€£₹]\s*\d', text))
+            date_str = temporal_value or lm_header
+            try:
+                date_str_clean = date_str[:10]  # take YYYY-MM-DD prefix
+                page_date = _dt.date.fromisoformat(date_str_clean)
+                age_days = (_dt.date.today() - page_date).days
+                if age_days > 365 and has_price:
+                    self._add_finding(
+                        "Stale Date on Commerce Page", "medium", "discoverability", url,
+                        f"Date signal '{date_str_clean}' is {age_days} days old; price/commerce signals present.",
+                        "Update dateModified when product details change; AI assistants may cite outdated pricing.",
+                        "medium", "citation", "page", f"stale_date:{url}"
+                    )
+            except (ValueError, TypeError):
+                pass  # unparseable date; skip stale check
 
     def check_engagement(self, url: str, data: Dict[str, Any]):
+        import re as _re
         parser = data["parser"]
+        words = parser.get_word_count()
+        is_content_page = words > 200
 
-        found = {eid for eid in parser.element_ids if any(p in eid.lower() for p in ANCHOR_PATTERNS)}
-        if not found:
+        if not is_content_page:
+            return  # skip engagement checks on thin/nav pages
+
+        # 1. Deep semantic anchors — check count, not specific names
+        id_count = len(parser.element_ids)
+        if id_count < 2:
             self._add_finding(
-                "Absence of Semantic Deep-Fragment Anchors", "medium", "engagement", url,
-                "No element IDs match high-intent patterns (#specs, #pricing, etc.).",
-                "Implement semantic ID anchors for key specification blocks.", "medium"
+                "Sparse Section Anchors", "medium", "engagement", url,
+                f"Only {id_count} element(s) with id attributes on a content page ({words} words). "
+                "Deep-linking to specific facts is not possible.",
+                "Add id attributes to major content sections to enable AI deep-link citations.",
+                "medium", "engagement", "page", f"sparse_anchors:{url}"
             )
 
-        has_ref = any(sig in sc.lower() for sig in {"document.referrer", "chatgpt", "perplexity", "claude", "intent-bridge"}
-                      for sc in parser.inline_scripts)
-        has_edge = any(h in data["headers"] for h in {"cf-worker", "x-fastly-ttl", "x-vercel-id", "x-render-origin-server"})
-
-        if not has_ref and not data["has_ui_bridge"] and not has_edge:
+        # 2. Referrer readiness — pattern-driven, not brand-name-specific
+        scripts_combined = " ".join(parser.inline_scripts).lower()
+        has_referrer_pattern = any(p in scripts_combined for p in REFERRER_PATTERNS)
+        if not has_referrer_pattern and nodes := self._get_schema(data):
+            # only flag if page has structured data (implies AI referral is plausible)
             self._add_finding(
-                "No Conversational Referrer Handling", "medium", "engagement", url,
-                "No inline script referrer detection, intent-bridge UI, or Edge worker headers.",
-                "Implement Edge middleware or client-side referrer parsing for AI traffic.", "medium"
+                "No Referrer-Awareness in Page Scripts", "medium", "engagement", url,
+                "Inline scripts contain no document.referrer or query-string parsing pattern. "
+                "AI-referred visitors cannot be detected or contextually welcomed.",
+                "Add referrer detection (document.referrer or UTM params) to tailor landing experience for AI traffic.",
+                "medium", "engagement", "page", f"no_referrer:{url}"
             )
 
-        if parser.heading_counts.get("h1", 0) == 0:
+        # 3. Conversion path visibility — DOM-position proxy
+        total_blocks = max(parser.block_element_count, 1)
+        first_cta: Optional[Tuple[str, int]] = None
+        for elem_text, pos in parser.transactional_elements:
+            if any(v in elem_text.lower() for v in TRANSACTIONAL_VERBS):
+                first_cta = (elem_text, pos)
+                break
+        # also scan inline text of <a>/<button> captured in text_chunks
+        if first_cta is None:
+            text = parser.get_plain_text().lower()
+            if not any(v in text for v in TRANSACTIONAL_VERBS):
+                self._add_finding(
+                    "No Transactional CTA Detected", "medium", "engagement", url,
+                    "No button or link with purchase/contact/download intent text found.",
+                    "Add a clear call-to-action above the fold on product/service pages.",
+                    "medium", "engagement", "page", f"no_cta:{url}"
+                )
+        elif first_cta[1] / total_blocks > 0.6:
             self._add_finding(
-                "Weak Post-Click Orientation", "medium", "engagement", url,
-                "Missing h1 heading; AI-referred visitors lose immediate context.",
-                "Add a descriptive h1 matching likely conversational query intent.", "medium"
+                "Conversion CTA Below Page Fold", "medium", "engagement", url,
+                f"First transactional element ('{first_cta[0][:40]}') appears at DOM depth "
+                f"{first_cta[1]}/{total_blocks} ({int(first_cta[1]/total_blocks*100)}% down).",
+                "Move primary CTA higher in the document so AI-referred visitors encounter it immediately.",
+                "medium", "engagement", "page", f"late_cta:{url}"
             )
+
+        # 4. noscript divergence
+        noscript_text = parser.get_noscript_text()
+        if noscript_text:
+            main_words = set(parser.get_plain_text().lower().split())
+            noscript_words = set(noscript_text.lower().split())
+            if noscript_words and main_words:
+                overlap = len(main_words & noscript_words) / len(noscript_words)
+                if overlap < 0.5:
+                    self._add_finding(
+                        "noscript Content Diverges from Main Page", "medium", "engagement", url,
+                        f"noscript block shares only {int(overlap*100)}% word overlap with main body. "
+                        "Non-JS crawlers (and some AI agents) see a materially different page.",
+                        "Ensure noscript fallback reflects key content; avoid misleading bots with placeholder text.",
+                        "medium", "engagement", "page", f"noscript_diverge:{url}"
+                    )
 
     def post_crawl_taxonomy_audit(self):
         prefix_to_cats: Dict[str, Set[str]] = {}
+        pages_with_schema = 0
         for url, data in self.page_data.items():
-            parser = data["parser"]
+            nodes = self._get_schema(data)
+            if not nodes:
+                continue
+            pages_with_schema += 1
             path = urllib.parse.urlparse(url).path
             seg = [s for s in path.split("/") if s]
-            prefix = seg[0] if seg else ""
+            prefix = seg[0] if seg else "(root)"
 
-            for node in self._get_schema(data):
-                if "product" in str(node.get("@type", "")).lower():
-                    cat = node.get("category") or node.get("additionalType")
+            for node in nodes:
+                t = str(node.get("@type", "")).lower()
+                if "product" in t or "article" in t or "service" in t:
+                    cat = node.get("category") or node.get("additionalType") or node.get("@type")
                     if cat:
                         prefix_to_cats.setdefault(prefix, set()).add(str(cat).lower())
+
+        if pages_with_schema < 3:
+            return  # insufficient data; skip
 
         for prefix, cats in prefix_to_cats.items():
             if len(cats) > 1:
                 self._add_finding(
-                    "Cross-Category Semantic Bleed Risk", "medium", "engagement", self.base_url,
-                    f"Prefix '/{prefix}/' holds divergent categories: {', '.join(sorted(cats))}.",
-                    "Isolate lines under dedicated namespaces (e.g., /performance/ vs /lifestyle/).", "medium"
+                    "Cross-Category Semantic Bleed", "medium", "engagement", self.base_url,
+                    f"URL prefix '/{prefix}/' maps to multiple schema categories: {', '.join(sorted(cats))}.",
+                    "Isolate distinct product/content lines under separate URL namespaces to prevent AI entity conflation.",
+                    "medium", "engagement", "site", f"taxonomy_bleed:{prefix}"
                 )
 
     def audit_sitemap(self):
@@ -560,43 +761,94 @@ class AuditEngine:
         status, _, content = self.fetch_url(sitemap_url)
         if status != 200 or not content:
             self._add_finding(
-                "Missing or Unreachable Sitemap", "medium", "discoverability", sitemap_url,
-                f"GET returned HTTP {status or 'Unreachable'}.",
-                "Publish sitemap.xml with ISO 8601 lastmod tags.", "medium"
+                "Sitemap Absent or Unreachable", "medium", "discoverability", sitemap_url,
+                f"GET {sitemap_url} returned HTTP {status or 'Unreachable'}.",
+                "Publish /sitemap.xml with <lastmod> on all URLs and reference it in robots.txt.",
+                "medium", "citation", "site", "sitemap_missing"
             )
             return
 
         try:
             root = ET.fromstring(content)
-            ns = {"ns": "http://www.sitemaps.org/schemas/sitemap/0.9"}
-            tag = root.tag.lower()
+        except ET.ParseError as e:
+            self._add_finding(
+                "Sitemap XML Malformed", "medium", "discoverability", sitemap_url,
+                f"XML parse error: {e}. Crawlers and AI indexers may fail to process it.",
+                "Fix sitemap XML syntax. Validate at sitemap.org before deploying.",
+                "medium", "citation", "site", "sitemap_malformed"
+            )
+            return
 
-            if "sitemapindex" in tag:
-                items = root.findall(".//ns:sitemap", ns) or root.findall(".//sitemap")
-            else:
-                items = root.findall(".//ns:url", ns) or root.findall(".//url")
+        ns = {"ns": "http://www.sitemaps.org/schemas/sitemap/0.9"}
+        tag = root.tag.lower()
 
-            if items:
-                missing = sum(1 for el in items if el.find("ns:lastmod", ns) is None and el.find("lastmod") is None)
-                if missing / len(items) > 0.5:
-                    self._add_finding(
-                        "Sitemap Lacks lastmod Signals", "medium", "discoverability", sitemap_url,
-                        f"{missing}/{len(items)} entries missing <lastmod>.",
-                        "Inject dynamic ISO 8601 lastmod tags into sitemap.", "medium"
-                    )
-        except Exception:
-            pass
+        if "sitemapindex" in tag:
+            # recurse one level: fetch and parse child sitemaps
+            child_locs = [
+                el.findtext("ns:loc", namespaces=ns) or el.findtext("loc", default="")
+                for el in (root.findall(".//ns:sitemap", ns) or root.findall(".//sitemap"))
+            ]
+            items: List[Any] = []
+            for child_url in child_locs[:5]:  # limit to first 5 child sitemaps
+                if not child_url or self._overtime():
+                    break
+                _, _, child_content = self.fetch_url(child_url.strip())
+                if child_content:
+                    try:
+                        child_root = ET.fromstring(child_content)
+                        items.extend(
+                            child_root.findall(".//ns:url", ns) or child_root.findall(".//url")
+                        )
+                    except ET.ParseError:
+                        pass  # log but continue
+        else:
+            items = root.findall(".//ns:url", ns) or root.findall(".//url")
+
+        if not items:
+            self._add_finding(
+                "Sitemap Contains No URLs", "medium", "discoverability", sitemap_url,
+                "Sitemap parsed successfully but contains zero <url> entries.",
+                "Ensure sitemap lists all indexable pages with <loc> and <lastmod>.",
+                "medium", "citation", "site", "sitemap_empty"
+            )
+            return
+
+        missing = sum(
+            1 for el in items
+            if el.find("ns:lastmod", ns) is None and el.find("lastmod") is None
+        )
+        if missing / len(items) > 0.5:
+            self._add_finding(
+                "Sitemap Lacks lastmod on Majority of URLs", "medium", "discoverability", sitemap_url,
+                f"{missing}/{len(items)} entries missing <lastmod>.",
+                "Add ISO 8601 <lastmod> to every sitemap entry to signal content freshness to AI crawlers.",
+                "medium", "citation", "site", "sitemap_no_lastmod"
+            )
 
     def audit_legacy_urls(self):
+        crawled_paths = [
+            urllib.parse.urlparse(u).path.rstrip("/")
+            for u in list(self.page_data.keys())
+            if urllib.parse.urlparse(u).path not in ("", "/")
+        ]
+        if len(crawled_paths) < 3:
+            return  # insufficient pattern basis; skip
+
+        # Infer archival variants from observed path structure
         probes: Set[str] = set()
-        for url in list(self.page_data.keys())[:3]:
-            path = urllib.parse.urlparse(url).path.rstrip("/")
-            if path and path != "/":
-                probes.add(f"{path}-old")
-                probes.add(f"/archive{path}")
+        for path in crawled_paths[:4]:
+            segments = [s for s in path.split("/") if s]
+            if not segments:
+                continue
+            # Variant A: append archival suffix to the last non-numeric segment
+            last_seg = segments[-1]
+            if not last_seg.isdigit():
+                probes.add("/" + "/".join(segments[:-1] + [last_seg + "-old"]))
+            # Variant B: prepend /archive to the path
+            probes.add("/archive" + path)
 
         stale: List[str] = []
-        for probe in list(probes)[:4]:
+        for probe in list(probes)[:6]:  # cap probes to avoid budget bleed
             if self._overtime():
                 break
             test = f"{self.parsed.scheme}://{self.parsed.netloc}{probe}"
@@ -606,9 +858,11 @@ class AuditEngine:
 
         if stale:
             self._add_finding(
-                "Legacy URLs Returning HTTP 200", "medium", "discoverability", self.base_url,
-                f"Heuristic probes returned 200: {', '.join(stale[:3])}.",
-                "Return HTTP 301 (with canonical) or HTTP 410 Gone for discontinued items.", "medium"
+                "Inferred Legacy URLs Return HTTP 200", "medium", "discoverability", self.base_url,
+                f"Probed retired-URL variants returned 200: {', '.join(stale[:4])}.",
+                "Return HTTP 301 (redirect to current canonical) or 410 Gone for discontinued pages "
+                "to prevent AI assistants from citing stale content.",
+                "medium", "citation", "site", "legacy_200"
             )
 
     def run(self) -> Dict[str, Any]:
@@ -636,8 +890,43 @@ class AuditEngine:
         self.audit_sitemap()
         self.post_crawl_taxonomy_audit()
         self.audit_legacy_urls()
+        self._emit_proactive_suggestions()
 
         return self._compile_report()
+
+    def _emit_proactive_suggestions(self):
+        """Proactive recommendations even where no explicit defect was found."""
+        # Check for SpeakableSpecification across all pages (proactive, not a defect)
+        has_speakable = any(
+            self._has_type(self._get_schema(d), {"speakablespecification"})
+            for d in self.page_data.values()
+        )
+        if not has_speakable and self.page_data:
+            self._add_finding(
+                "SpeakableSpecification Not Present", "medium", "discoverability", self.base_url,
+                "No SpeakableSpecification markup detected across crawled pages.",
+                "Add SpeakableSpecification with cssSelector targeting key content blocks "
+                "to guide voice assistants and AI answer extraction.",
+                "medium", "citation", "site", "no_speakable_proactive"
+            )
+
+        # Cross-web corroboration gap: if no sameAs found anywhere
+        any_sameas = False
+        for d in self.page_data.values():
+            for node in self._get_schema(d):
+                if node.get("sameAs"):
+                    any_sameas = True
+                    break
+            if any_sameas:
+                break
+        if not any_sameas and self.page_data:
+            self._add_finding(
+                "Brand Lacks Cross-Web Entity Anchoring", "medium", "discoverability", self.base_url,
+                "No sameAs links to external authority sources found across any crawled page.",
+                "Establish brand presence on Wikidata, Wikipedia, and industry directories; "
+                "add sameAs links in Organization JSON-LD to those profiles.",
+                "medium", "citation", "brand", "no_crossweb_corroboration"
+            )
 
     def _compile_report(self) -> Dict[str, Any]:
         order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
@@ -653,13 +942,18 @@ class AuditEngine:
         return {
             "site": self.domain,
             "audited_at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "crawl_meta": {
+                "pages_crawled": len(self.page_data),
+                "pages_errored": len(self.crawl_errors),
+                "errors": self.crawl_errors
+            },
             "summary": summary,
             "findings": self.findings
         }
 
 
 def main():
-    p = argparse.ArgumentParser(description="Brand AI-Readiness Audit Engine v2.1")
+    p = argparse.ArgumentParser(description="Brand AI-Readiness Audit Engine v3.0")
     p.add_argument("--url", required=True)
     p.add_argument("--max-pages", type=int, default=5)
     p.add_argument("--timeout", type=int, default=15, help="Per-request timeout in seconds (default: 15)")

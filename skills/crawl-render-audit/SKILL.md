@@ -1,35 +1,47 @@
 ---
 name: crawl-render-audit
-description: Audits crawler accessibility, rendering barriers, structured data coverage, and machine-readable manifest endpoints.
+description: Audits crawler accessibility and content machine-readability. Separates indexing gaps (page unreachable or unreadable by a crawler) from citation gaps (page reachable but lacking signals that cause AI assistants to quote it).
 license: Apache-2.0
 allowed-tools:
-  - web-fetch
-  - dom-parser
+  - python-runtime
 ---
 
 # Crawl & Render Audit
 
 ## When to use
-Diagnose why a brand is omitted from AI assistant retrieval.
+Diagnose why a page is absent from AI assistant answers — either because a crawler cannot reach it (indexing gap) or because it is reached but not quoted (citation gap).
 
 ## Inputs
 * `url` (string, required): Page URL.
-* `page_data` (dict, optional): Pre-fetched `{status, headers, parser, has_framework, has_ui_bridge}`.
+* `page_data` (dict): `{status_code, headers, html, word_count, script_bytes}` from the orchestrator crawl. All fields may be absent if the page errored — handle gracefully.
 
 ## Procedure
-1. **Triple-Layer Crawler Gate**:
-   * `robots.txt`: `RobotFileParser.can_fetch()` for AI tokens (`GPTBot`, `ClaudeBot`, `PerplexityBot`, `Google-Extended`, `Bytespider`, `CCBot`, `anthropic-ai`).
-   * `<meta name="robots">`: flag `noindex` / `none` as `critical`.
-   * `X-Robots-Tag` header: flag `noindex` as `critical`.
-2. **CSR Wall**: If static text `< 150` words and scripts `> 40KB`, flag `high`. Strengthen evidence with framework hydration markers found in raw HTML.
-3. **Semantic Structure**: Flag missing `<main>` / `<article>` as `medium`. Flag 0 or `> 1` `h1` as `medium`.
-4. **Schema.org JSON-LD**:
-   * Absence of any JSON-LD → `high`.
-   * E-commerce text signals without `Product` / `Offer` schema → `high`.
-   * Missing `BreadcrumbList` or `SpeakableSpecification` → `medium`.
-   * Missing `WebSite` schema **on root only** → `medium`.
-5. **Machine-Readable Manifest**: `GET /llms.txt` and `/llms-full.txt`. Flag missing or malformed (not starting with `#` or `< 50` bytes) as `medium`.
-6. **Open Graph**: Flag missing `og:title` or `og:description` as `medium`.
+
+If `page_data` is absent or `status_code` is not 2xx, emit a single `high` `indexing` finding and return. Do not attempt further checks on unreachable pages.
+
+### Indexing Checks (`gap_type: "indexing"`)
+
+1. **Meta robots directive**: Parse `<meta name="robots" content="...">` from HTML (case-insensitive). If `noindex` or `none` is present → `critical`. Evidence: report the full content attribute value.
+
+2. **X-Robots-Tag response header**: Check response headers for `X-Robots-Tag`. If it contains `noindex` → `critical`. Evidence: report the header value as found. Skip if header absent.
+
+3. **CSR rendering barrier**: If `word_count < 150` and `script_bytes > 40000`, infer likely client-side rendering. Confirm by scanning raw HTML for framework hydration markers: `data-reactroot`, `ng-version`, `__nuxt`, `__NEXT_DATA__`, `data-server-rendered`, `__svelte`. If any marker found alongside low visible text → `high`. Evidence: state `word_count`, `script_bytes`, and which marker was detected. Suggested action scope: `site` (affects all pages rendered by the same framework).
+
+4. **Canonical tag**: On content pages (`word_count > 100`): check for `<link rel="canonical" href="...">`. If absent → `medium`. If present but `href` differs from the current page URL (after normalization), flag separately as `medium` canonical mismatch. Evidence: report the canonical href found.
+
+### Citation Checks (`gap_type: "citation"`)
+
+5. **Structured data — JSON-LD**: Extract all `<script type="application/ld+json">` blocks. For each block, attempt `json.loads()`. On parse failure → `medium` (malformed JSON-LD; AI extractors will skip it). Evidence: report the parse error and first 120 characters of the block. If no JSON-LD blocks present at all → `high`. If e-commerce signals are present in visible text (price patterns via regex, phrases like "add to cart", "buy now") but no `Product` or `Offer` `@type` found in any valid block → `high`. If no `BreadcrumbList` found on a non-root page with more than one path segment → `medium`.
+
+6. **Semantic HTML structure**: Missing `<main>` or `<article>` landmark element → `medium`. Zero `<h1>` elements → `medium`. More than one `<h1>` → `medium`. Evidence: report the actual count found.
+
+7. **`<title>` and meta description**: `<title>` absent or empty → `high` (primary AI snippet surface). `<meta name="description">` absent or empty → `medium`. Description longer than 160 characters → `medium` (likely truncated in AI previews). Evidence: report what was found.
+
+8. **Machine-readable AI manifest** (root URL only): `GET /llms.txt` (new HEAD request, 5 s timeout). On 404 or non-2xx → `medium`. On 2xx but response body less than 50 bytes or body does not start with `#` → `medium` (malformed). This is a citation signal. Evidence: report HTTP status and first line of body if available.
+
+9. **Open Graph tags**: Missing `og:title` → `medium`. Missing `og:description` → `medium`. Both missing simultaneously → consolidate into one `high` finding. Evidence: list which tags were absent.
+
+10. **Multi-region signal** (root URL only): If `<link rel="alternate" hreflang>` tags are present, check for a tag with `hreflang="x-default"`. If absent → `medium`. If present but one or more region tags point to non-2xx URLs → `medium`. Skip entirely if no hreflang tags are found (not a defect for single-region sites).
 
 ## Output
-Finding records with `category: "discoverability"`.
+Finding records. `gap_type`: `"indexing"` or `"citation"`. `category`: `"discoverability"`.
