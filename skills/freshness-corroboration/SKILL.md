@@ -2,6 +2,9 @@
 name: freshness-corroboration
 description: Audits temporal signals, cross-web entity corroboration, canonical drift, and stale URL pollution. Identifies citation gaps where AI assistants surface outdated or ambiguous brand facts, and indexing gaps from canonical inconsistency.
 license: Apache-2.0
+metadata:
+  entrypoint: false
+  version: 3.0.0
 allowed-tools:
   - python-runtime
 ---

@@ -2,6 +2,9 @@
 name: crawl-render-audit
 description: Audits crawler accessibility and content machine-readability. Separates indexing gaps (page unreachable or unreadable by a crawler) from citation gaps (page reachable but lacking signals that cause AI assistants to quote it).
 license: Apache-2.0
+metadata:
+  entrypoint: false
+  version: 3.0.0
 allowed-tools:
   - python-runtime
 ---

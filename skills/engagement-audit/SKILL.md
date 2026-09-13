@@ -2,6 +2,9 @@
 name: engagement-audit
 description: Audits post-click context retention, page orientation, referrer-awareness patterns, conversion path visibility, and semantic category isolation. Identifies engagement gaps where AI-referred visitors arrive but immediately disengage.
 license: Apache-2.0
+metadata:
+  entrypoint: false
+  version: 3.0.0
 allowed-tools:
   - python-runtime
 ---

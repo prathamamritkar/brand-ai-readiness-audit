@@ -1,8 +1,12 @@
 ---
 name: entity-trust
 description: Evaluate whether a website provides clear, consistent, and machine-interpretable identity signals for its organization, products, or services. Use when auditing entity clarity and trust signals from collected page evidence.
-license: MIT
-compatibility: Python 3.10+, consumes Site Intelligence Evidence Bundle
+license: Apache-2.0
+metadata:
+  entrypoint: false
+  version: 3.0.0
+allowed-tools:
+  - python-runtime
 ---
 
 # Entity Trust
