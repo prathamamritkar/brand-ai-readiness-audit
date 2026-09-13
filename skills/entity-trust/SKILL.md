@@ -111,8 +111,9 @@ Look for:
 - About/company information
 - Contact information
 - Consistent naming
-- Organization-related structured data
+- Organization-related structured data (`@type: Organization` or `Brand`)
 - Stable entity identifiers where available
+- `disambiguatingDescription` field in Organization/Brand JSON-LD — if visible identity exists but `disambiguatingDescription` is absent → flag `medium`. Evidence: report which pages have Organization/Brand JSON-LD and whether the field was present. Scope: `brand`. (Note: `sameAs` presence is audited by `freshness-corroboration`; this skill audits whether the description disambiguates the brand from similarly-named entities.)
 - Useful disambiguating descriptions where available
 
 ### Product or service identity
@@ -216,30 +217,46 @@ Use:
 
 ## Output Schema
 
-Return:
+Each finding must conform to the marketplace standard shape:
 
 ```json
 {
-  "schema_version": "entity-trust/v1",
-  "summary": {
-    "pages_evaluated": 0,
-    "findings": 0,
-    "identity_clear": 0,
-    "identity_gaps": 0,
-    "inconsistencies": 0
-  },
-  "findings": [
-    {
-      "finding_id": "entity-...",
-      "category": "entity_identity",
-      "status": "present|absent|uncertain",
-      "signal": "...",
-      "scope": "site|page",
-      "page_url": "...",
-      "confidence": "high|medium|low",
-      "evidence": [],
-      "limitations": []
-    }
-  ],
-  "limitations": []
+  "id": "ET-001",
+  "title": "Organization Identity Unclear Across Site",
+  "severity": "high",
+  "gap_type": "citation",
+  "category": "entity_identity",
+  "url": "https://example.com",
+  "evidence": "No Organization or Brand JSON-LD found on homepage or about page. Title present but no machine-readable identity.",
+  "suggested_action": {
+    "summary": "Add Organization JSON-LD with name, url, logo, sameAs, and disambiguatingDescription to the homepage.",
+    "priority": "high",
+    "scope": "site"
+  }
 }
+```
+
+### Severity mapping
+
+| Signal | `confidence` | → `severity` |
+|---|---|---|
+| `organization_identity_unclear` | high/medium | `high` |
+| `machine_identity_gap` | medium | `high` |
+| `offering_identity_unclear` | medium | `medium` |
+| `identity_inconsistency` | medium | `medium` |
+| `unstable_entity_reference` | high | `high`, medium → `medium` |
+| `entity_relationship_gap` | medium | `medium` |
+| `missing_disambiguating_description` | medium | `medium` |
+| `entity_identity_clear` | any | omit — positive signal, do not emit as a finding |
+
+### `suggested_action` catalog per signal
+
+| Signal | `suggested_action.summary` |
+|---|---|
+| `organization_identity_unclear` | Add `Organization` JSON-LD with `name`, `url`, `logo`, `sameAs`, and `disambiguatingDescription` to the homepage and about page. |
+| `machine_identity_gap` | Visible brand identity exists but no machine-readable equivalent. Add `Organization` JSON-LD to expose identity to AI extractors. |
+| `offering_identity_unclear` | Add `Product` or `Service` JSON-LD with `name`, `description`, and `category` to each offering page. |
+| `identity_inconsistency` | Normalize brand and product names across all pages and structured data blocks to eliminate entity conflation risk. |
+| `unstable_entity_reference` | Use a single stable `@id` URL (e.g. `https://example.com/#organization`) across all Organization JSON-LD blocks. |
+| `entity_relationship_gap` | Add explicit `brand`, `manufacturer`, or `provider` relationships in JSON-LD to link offerings to the parent Organization. |
+| `missing_disambiguating_description` | Add `disambiguatingDescription` to Organization/Brand JSON-LD (e.g. "Acme Inc. is a B2B SaaS company focused on supply-chain analytics, distinct from Acme Corp. the hardware retailer."). |

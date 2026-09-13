@@ -1,180 +1,36 @@
 ---
 name: engagement-audit
-description: Analyze observable website engagement and navigation signals from a Site Intelligence evidence bundle, including calls to action, internal pathways, contextual links, and page-level next actions. Use this skill when evaluating how clearly a public website exposes meaningful engagement paths to visitors and machines.
+description: Audits post-click context retention, page orientation, referrer-awareness patterns, conversion path visibility, and semantic category isolation. Identifies engagement gaps where AI-referred visitors arrive but immediately disengage.
+license: Apache-2.0
+allowed-tools:
+  - python-runtime
 ---
 
-# Engagement Audit
+# Engagement & Context Retention Audit
 
-## Purpose
+## When to use
+Diagnose high bounce from AI referrals. Run after `crawl-render-audit` confirms the page is reachable and machine-readable.
 
-Analyze observable engagement and navigation signals in a website's evidence bundle.
+## Inputs
+* `url` (string, required): Page URL.
+* `page_data` (dict): `{url, html, word_count, headers}` from the orchestrator crawl.
+* `all_pages_schema` (list, optional): Aggregated schema data from all crawled pages, used for cross-category bleed check. Pass only when calling from orchestrator for site-wide aggregation.
 
-This skill identifies how pages expose meaningful next actions, internal pathways, calls to action, and contextual navigation.
+## Procedure
 
-This skill is observation-focused. It must not assign an overall engagement score, diagnose final root causes, or prescribe fixes.
+All findings use `gap_type: "engagement"` and `category: "engagement"`. If `page_data` is absent or `status_code` is not 2xx, skip all checks.
 
-## Input
+1. **Page orientation signal**: A visitor who arrives from an AI referral needs immediate context. Check that `<h1>` is present (absence already flagged by `crawl-render-audit` — do not duplicate). Check that `<h1>` text is not identical to `<title>` with no additional information, and is not purely the brand or site name. If it provides no distinguishing context for the specific page → `medium`. Evidence: report the `<h1>` and `<title>` text found. Only flag on content pages (`word_count > 200`).
 
-Consume the Site Intelligence Evidence Bundle.
+2. **Deep semantic anchors**: Count elements with an `id` attribute across the full HTML. On content/product pages (`word_count > 300`), fewer than 2 `id`-bearing elements → `medium` — AI assistants cannot deep-link users to specific facts, increasing bounce. Evidence: report count of `id`-bearing elements. Do not require specific `id` names; presence is the signal.
 
-Expected input:
+3. **Conversational referrer readiness**: Scan all inline `<script>` blocks (blocks without a `src` attribute) for evidence of referrer-awareness. Look for: the string `document.referrer`, query parameter parsing patterns (e.g. `URLSearchParams`, `location.search`), or session/local storage reads. If no referrer-awareness pattern is detected, scan HTML attributes and class names for any intent-bridge pattern (any class or id containing substrings like `referr`, `context`, `intent`, `assistant`). If nothing is found on a page that has structured data or is linked from the root navigation, flag `medium`. Evidence: report which signals were checked and what was found. Scope: page. Do not flag on every page — infer AI-referral likelihood from page type.
 
-- Site metadata
-- Crawl metadata
-- Page records
-- Page URLs and types
-- Titles and headings
-- Visible text
-- Internal and external links
-- Link anchor text when available
-- Page depth and discovery provenance
+4. **Conversion path visibility**: Parse the document body. Find all `<a>` and `<button>` elements. For each, check if the visible text (stripped) or `aria-label` matches transactional intent: words such as "buy", "order", "get", "download", "contact", "start", "try", "sign up", "request", "book" (case-insensitive substring match). Determine the relative vertical position of the first such element by counting preceding block-level elements as a proxy for DOM depth. If no transactional element is found on a product or service page → `medium`. If the first transactional element is in the bottom 40% of the DOM → `medium`. Evidence: report text and position of first transactional element found, or "none found."
 
-Do not crawl the website independently when the required evidence is already present in the bundle.
+5. **`noscript` content divergence**: If a `<noscript>` block is present, compare its stripped text word set to the main body word set (excluding `<script>` and `<style>` content). If overlap is less than 50% of the `noscript` word set, flag `medium` — AI agents that do not execute JavaScript see a materially different page, which can cause a mismatch between the AI's description and what a non-JS visitor experiences. Evidence: report approximate overlap percentage.
 
-## Analysis Areas
-
-### 1. Calls to Action
-
-Identify observable action-oriented signals such as:
-
-- Contact
-- Request a demo
-- Get started
-- Buy
-- Subscribe
-- Sign up
-- Download
-- Book
-- Learn more
-- View pricing
-- Start a trial
-
-Record the observed wording and source page.
-
-Do not assume that every page requires a call to action.
-
-### 2. Navigation Pathways
-
-Identify meaningful internal pathways between pages.
-
-Examples:
-
-- Homepage → Product
-- Product → Pricing
-- Product → Documentation
-- Service → Contact
-- Article → Related Article
-- Product → Case Study
-
-Record the source page, destination URL, and available anchor text.
-
-Do not infer user intent when the evidence does not support it.
-
-### 3. Contextual Links
-
-Identify links that provide meaningful context or continuation, including:
-
-- Related content
-- Documentation
-- Product information
-- Services
-- Case studies
-- Resources
-- Support
-- Contact information
-
-Distinguish contextual links from generic navigation where possible.
-
-### 4. Page-Level Next Actions
-
-Determine which observable next-action signals are present on each crawled page.
-
-Examples:
-
-- Action-oriented link
-- Contact pathway
-- Product pathway
-- Documentation pathway
-- Related-content pathway
-- No observable next-action signal
-
-A lack of an observed signal must be reported conservatively.
-
-It must not be treated as proof that the page contains no engagement mechanism.
-
-### 5. Internal Link Coverage
-
-Measure descriptive coverage of internal pathways across crawled pages.
-
-Where possible, break coverage down by:
-
-- Page type
-- Destination page type
-- Presence of action-oriented anchor text
-- Internal-link count
-
-Coverage is descriptive, not a quality score.
-
-### 6. Link Quality Signals
-
-Record observable characteristics that may affect interpretation:
-
-- Empty anchor text
-- Generic anchor text
-- Repeated anchor text
-- Absolute versus relative destination URLs
-- Same-origin versus external destination
-- Links to important page types
-- Links whose destination was not observed in the crawl
-
-Do not label these characteristics as harmful without additional evidence.
-
-## Evidence Rules
-
-Every observation must be traceable to the supplied evidence bundle.
-
-Prefer:
-
-- Source page URL
-- Destination URL
-- Exact anchor text
-- Page type
-- Link type
-- Observed page metadata
-
-Do not invent links, CTAs, destinations, or user intent.
-
-Distinguish clearly between:
-
-- Present
-- Absent from observed evidence
-- Not applicable
-- Unable to determine
-
-Absence of evidence is not proof that a website lacks an engagement mechanism.
+6. **Cross-category semantic bleed** (site-wide, invoked by orchestrator with `all_pages_schema`): Build a map of URL path prefix (first path segment, e.g. `/products`, `/blog`) → set of distinct Schema.org `@type` or `category` values found across all pages under that prefix. If one prefix maps to more than one distinct product or content category type, flag `medium`. Evidence: list the prefix and the conflicting type values found. Handle gracefully: if fewer than 3 pages have valid schema, skip this check and note it in evidence.
 
 ## Output
-
-Return a structured engagement-audit result containing:
-
-- Skill name
-- Schema version
-- Summary statistics
-- CTA observations
-- Navigation observations
-- Contextual-link observations
-- Page-level engagement observations
-- Coverage observations
-- Limitations
-
-Recommended structure:
-
-```json
-{
-  "skill": "engagement-audit",
-  "schema_version": "engagement-audit/v1",
-  "summary": {},
-  "observations": [],
-  "coverage": {},
-  "limitations": []
-}
+Finding records. `gap_type`: `"engagement"`. `category`: `"engagement"`.

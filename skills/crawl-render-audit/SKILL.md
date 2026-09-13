@@ -1,155 +1,47 @@
 ---
 name: crawl-render-audit
-description: Analyze machine-accessibility and content-rendering signals from a Site Intelligence evidence bundle, including observable content, semantic structure, metadata, links, and limitations of non-browser collection. Use this skill when evaluating whether important website content and signals are exposed clearly to machine consumers.
+description: Audits crawler accessibility and content machine-readability. Separates indexing gaps (page unreachable or unreadable by a crawler) from citation gaps (page reachable but lacking signals that cause AI assistants to quote it).
+license: Apache-2.0
+allowed-tools:
+  - python-runtime
 ---
 
-# Crawl / Render Audit
+# Crawl & Render Audit
 
-## Purpose
+## When to use
+Diagnose why a page is absent from AI assistant answers — either because a crawler cannot reach it (indexing gap) or because it is reached but not quoted (citation gap).
 
-Analyze the machine-accessibility and rendering signals observable in a Site Intelligence evidence bundle.
+## Inputs
+* `url` (string, required): Page URL.
+* `page_data` (dict): `{status_code, headers, html, word_count, script_bytes}` from the orchestrator crawl. All fields may be absent if the page errored — handle gracefully.
 
-This skill determines what meaningful content and structural signals are exposed in the collected evidence and identifies situations where machine accessibility cannot be determined from static evidence alone.
+## Procedure
 
-The skill is observation-focused. It does not assign final severity, infer root causes, or generate recommendations.
+If `page_data` is absent or `status_code` is not 2xx, emit a single `high` `indexing` finding and return. Do not attempt further checks on unreachable pages.
 
-## Input
+### Indexing Checks (`gap_type: "indexing"`)
 
-Use a Site Intelligence evidence bundle containing, where available:
+1. **Meta robots directive**: Parse `<meta name="robots" content="...">` from HTML (case-insensitive). If `noindex` or `none` is present → `critical`. Evidence: report the full content attribute value.
 
-- page URL
-- page type
-- fetch status
-- title
-- meta description
-- canonical URL
-- language
-- headings
-- bounded visible text
-- visible text character count
-- text truncation status
-- internal and external links
-- JSON-LD blocks
-- crawl depth
-- discovery provenance
+2. **X-Robots-Tag response header**: Check response headers for `X-Robots-Tag`. If it contains `noindex` → `critical`. Evidence: report the header value as found. Skip if header absent.
 
-Do not perform an independent crawl.
+3. **CSR rendering barrier**: If `word_count < 150` and `script_bytes > 40000`, infer likely client-side rendering. Confirm by scanning raw HTML for framework hydration markers: `data-reactroot`, `ng-version`, `__nuxt`, `__NEXT_DATA__`, `data-server-rendered`, `__svelte`. If any marker found alongside low visible text → `high`. Evidence: state `word_count`, `script_bytes`, and which marker was detected. Suggested action scope: `site` (affects all pages rendered by the same framework).
 
-## Audit Areas
+4. **Canonical tag**: On content pages (`word_count > 100`): check for `<link rel="canonical" href="...">`. If absent → `medium`. If present but `href` differs from the current page URL (after normalization), flag separately as `medium` canonical mismatch. Evidence: report the canonical href found.
 
-### 1. Content Observability
+### Citation Checks (`gap_type: "citation"`)
 
-Determine whether meaningful page content is observable in the collected evidence.
+5. **Structured data — JSON-LD**: Extract all `<script type="application/ld+json">` blocks. For each block, attempt `json.loads()`. On parse failure → `medium` (malformed JSON-LD; AI extractors will skip it). Evidence: report the parse error and first 120 characters of the block. If no JSON-LD blocks present at all → `high`. If e-commerce signals are present in visible text (price patterns via regex, phrases like "add to cart", "buy now") but no `Product` or `Offer` `@type` found in any valid block → `high`. If no `BreadcrumbList` found on a non-root page with more than one path segment → `medium`.
 
-Consider:
+6. **Semantic HTML structure**: Missing `<main>` or `<article>` landmark element → `medium`. Zero `<h1>` elements → `medium`. More than one `<h1>` → `medium`. Evidence: report the actual count found.
 
-- visible text presence
-- visible text length
-- headings
-- title
-- metadata
-- page type
-- fetch success
+7. **`<title>` and meta description**: `<title>` absent or empty → `high` (primary AI snippet surface). `<meta name="description">` absent or empty → `medium`. Description longer than 160 characters → `medium` (likely truncated in AI previews). Evidence: report what was found.
 
-Do not assume that missing extracted text proves that the website has no content.
+8. **Machine-readable AI manifest** (root URL only): `GET /llms.txt` (new HEAD request, 5 s timeout). On 404 or non-2xx → `medium`. On 2xx but response body less than 50 bytes or body does not start with `#` → `medium` (malformed). This is a citation signal. Evidence: report HTTP status and first line of body if available.
 
-### 2. Semantic Structure
+9. **Open Graph tags**: Missing `og:title` → `medium`. Missing `og:description` → `medium`. Both missing simultaneously → consolidate into one `high` finding. Evidence: list which tags were absent.
 
-Inspect observable structural signals such as:
+10. **Multi-region signal** (root URL only): If `<link rel="alternate" hreflang>` tags are present, check for a tag with `hreflang="x-default"`. If absent → `medium`. If present but one or more region tags point to non-2xx URLs → `medium`. Skip entirely if no hreflang tags are found (not a defect for single-region sites).
 
-- page title
-- headings
-- heading hierarchy
-- meta description
-- canonical URL
-- language
-- semantic page-type signals
-
-Report observations without assigning a quality score.
-
-### 3. Machine-Discoverable Relationships
-
-Inspect relationships exposed through:
-
-- internal links
-- contextual links
-- canonical URLs
-- JSON-LD relationships
-
-Do not duplicate the detailed engagement analysis performed by the Engagement Audit skill.
-
-### 4. Structured Rendering Signals
-
-Inspect JSON-LD and related structured signals only when present in the Site Intelligence evidence.
-
-Record:
-
-- whether structured data is observable
-- number of structured-data blocks
-- whether structured data contains identifiable types
-- whether structured data is available on important page types
-
-Do not determine whether a JavaScript framework was used unless the evidence explicitly supports that conclusion.
-
-### 5. Rendering Limitations
-
-Clearly distinguish between:
-
-- observable from collected evidence
-- absent from collected evidence
-- unable to determine without browser or JavaScript execution
-
-Static extraction cannot prove that client-side rendering is or is not used.
-
-## Evidence Rules
-
-Every observation should include enough provenance to trace it back to the source page and evidence field.
-
-Prefer exact evidence such as:
-
-- page URL
-- field name
-- observed value
-- page type
-- structured-data count
-- text character count
-- heading count
-- link count
-
-Do not infer hidden DOM state, JavaScript execution, visual layout, CSS behavior, or user interaction.
-
-Do not treat an empty field as proof of a rendering failure.
-
-When evidence is insufficient, use `unable_to_determine`.
-
-## Status Semantics
-
-Use the following status values consistently:
-
-### present
-
-The relevant signal is explicitly observable in the evidence.
-
-### absent
-
-The relevant signal was checked and is not present in the available evidence.
-
-### unable_to_determine
-
-The available evidence is insufficient to make the determination reliably.
-
-## Output Contract
-
-Return a deterministic JSON object:
-
-```json
-{
-  "skill": "crawl-render-audit",
-  "schema_version": "crawl-render-audit/v1",
-  "summary": {},
-  "content_observability": [],
-  "semantic_structure": [],
-  "machine_relationships": [],
-  "structured_rendering": [],
-  "limitations": []
-}
+## Output
+Finding records. `gap_type`: `"indexing"` or `"citation"`. `category`: `"discoverability"`.
