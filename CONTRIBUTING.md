@@ -1,4 +1,4 @@
-# Contributors
+# Contributing
 
 ## Team Adobe Wan Kenobi
 
