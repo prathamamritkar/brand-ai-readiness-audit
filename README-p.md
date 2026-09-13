@@ -34,7 +34,7 @@ Decomposes audit logic into four skills: one entrypoint orchestrator and three d
 ## 4. Execution
 
 ```bash
-python3 skills/audit-orchestrator/scripts/audit_engine.py \
+python3 skills-p/audit-orchestrator/scripts/audit_engine.py \
   --url https://example.com \
   --max-pages 5 \
   --out report.json
@@ -48,7 +48,7 @@ brand-ai-readiness-audit/
 ├── README.md
 ├── LICENSE
 ├── CONTRIBUTORS.md
-└── skills/
+└── skills-p/
     ├── audit-orchestrator/
     │   ├── SKILL.md
     │   ├── scripts/
