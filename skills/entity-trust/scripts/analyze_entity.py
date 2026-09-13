@@ -370,6 +370,39 @@ def identity_consistency(
     return False, evidence
 
 
+_SIGNAL_TITLE = {
+    "organization_identity_unclear": "Organization Identity Unclear Across Site",
+    "machine_identity_gap": "Machine-Readable Identity Gap",
+    "offering_identity_unclear": "Offering Identity Unclear on Page",
+    "identity_inconsistency": "Inconsistent Brand Identity Across Pages",
+    "unstable_entity_reference": "Unstable Entity @id Across Pages",
+    "entity_relationship_gap": "Entity Relationship Not Machine-Readable",
+    "missing_disambiguating_description": "Organization Lacks disambiguatingDescription",
+}
+
+_SIGNAL_SEVERITY = {
+    "organization_identity_unclear": "high",
+    "machine_identity_gap": "high",
+    "offering_identity_unclear": "medium",
+    "identity_inconsistency": "medium",
+    "unstable_entity_reference": "high",
+    "entity_relationship_gap": "medium",
+    "missing_disambiguating_description": "medium",
+}
+
+_SIGNAL_ACTION = {
+    "organization_identity_unclear": "Add Organization JSON-LD with name, url, logo, sameAs, and disambiguatingDescription to the homepage and about page.",
+    "machine_identity_gap": "Visible brand identity exists but no machine-readable equivalent. Add Organization JSON-LD to expose identity to AI extractors.",
+    "offering_identity_unclear": "Add Product or Service JSON-LD with name, description, and category to each offering page.",
+    "identity_inconsistency": "Normalize brand and product names across all pages and structured data blocks to eliminate entity conflation risk.",
+    "unstable_entity_reference": "Use a single stable @id URL (e.g. https://example.com/#organization) across all Organization JSON-LD blocks.",
+    "entity_relationship_gap": "Add explicit brand, manufacturer, or provider relationships in JSON-LD to link offerings to the parent Organization.",
+    "missing_disambiguating_description": "Add disambiguatingDescription to Organization/Brand JSON-LD to distinguish the brand from similarly-named entities.",
+}
+
+_FINDING_COUNTER: dict[str, int] = {}
+
+
 def build_finding(
     signal: str,
     status: str,
@@ -378,28 +411,34 @@ def build_finding(
     evidence: list[dict[str, Any]],
     page_url_value: str = "",
 ) -> dict[str, Any]:
-    """Build one deterministic finding."""
-    finding_key = (
-        f"{signal}|{scope}|{page_url_value}"
-    )
+    if signal == "entity_identity_clear":
+        return {}
 
-    finding_id = (
-        "entity-"
-        + normalize(finding_key)
-        .replace(" ", "-")
-        .replace("|", "-")
-    )
+    prefix = "ET"
+    _FINDING_COUNTER[prefix] = _FINDING_COUNTER.get(prefix, 0) + 1
+    finding_id = f"{prefix}-{_FINDING_COUNTER[prefix]:03d}"
+
+    severity = _SIGNAL_SEVERITY.get(signal, "medium")
+    if signal == "unstable_entity_reference" and confidence == "medium":
+        severity = "medium"
+
+    evidence_str = "; ".join(
+        str(e.get("page_url", "") or e) for e in evidence[:4]
+    ) if evidence else "No supporting evidence collected."
 
     return {
-        "finding_id": finding_id,
+        "id": finding_id,
+        "title": _SIGNAL_TITLE.get(signal, signal.replace("_", " ").title()),
+        "severity": severity,
+        "gap_type": "citation",
         "category": "entity_identity",
-        "status": status,
-        "signal": signal,
-        "scope": scope,
-        "page_url": page_url_value,
-        "confidence": confidence,
-        "evidence": evidence,
-        "limitations": [],
+        "url": page_url_value or "",
+        "evidence": evidence_str,
+        "suggested_action": {
+            "summary": _SIGNAL_ACTION.get(signal, "Review entity identity signals for this issue."),
+            "priority": severity,
+            "scope": scope,
+        },
     }
 
 
@@ -601,52 +640,68 @@ def analyze(data: dict[str, Any]) -> dict[str, Any]:
         )
 
     # ---------------------------------------------------------------
+    # disambiguatingDescription check (site-wide)
+    # ---------------------------------------------------------------
+
+    org_pages_with_jsonld = [
+        page for page in pages if has_organization_jsonld(page)
+    ]
+    if org_pages_with_jsonld:
+        has_disambig = any(
+            any(
+                block.get("disambiguatingDescription")
+                for block in extract_jsonld(page)
+                if isinstance(block.get("@type"), str)
+                and normalize(block["@type"]) in {"organization", "corporation", "brand", "localbusiness"}
+            )
+            for page in org_pages_with_jsonld
+        )
+        if not has_disambig:
+            findings.append(
+                build_finding(
+                    signal="missing_disambiguating_description",
+                    status="absent",
+                    scope="brand",
+                    confidence="medium",
+                    evidence=[
+                        {"page_url": page_url(p), "has_org_jsonld": True, "disambiguatingDescription": False}
+                        for p in org_pages_with_jsonld[:3]
+                    ],
+                )
+            )
+
+    # ---------------------------------------------------------------
     # Deterministic ordering and summary
     # ---------------------------------------------------------------
+
+    findings = [
+        f for f in findings if f
+    ]
 
     findings = sorted(
         findings,
         key=lambda item: (
-            normalize(item.get("page_url")),
-            normalize(item.get("signal")),
-            normalize(item.get("status")),
+            {"high": 0, "medium": 1}.get(item.get("severity", "medium"), 1),
+            item.get("url", ""),
+            item.get("title", ""),
         ),
     )
 
-    identity_clear = sum(
-        item["signal"] == "entity_identity_clear"
-        and item["status"] == "present"
-        for item in findings
-    )
-
-    identity_gaps = sum(
-        item["status"] == "absent"
-        for item in findings
-    )
-
-    inconsistencies = sum(
-        item["signal"] == "identity_inconsistency"
-        for item in findings
-    )
-
-    limitations: list[str] = []
-
-    if not pages:
-        limitations.append(
-            "No Site Intelligence pages were available."
-        )
+    severity_counts = {"high": 0, "medium": 0}
+    for f in findings:
+        sev = f.get("severity", "medium")
+        if sev in severity_counts:
+            severity_counts[sev] += 1
 
     return {
-        "schema_version": SCHEMA_VERSION,
+        "site": "",
+        "audited_at": "",
         "summary": {
-            "pages_evaluated": len(pages),
-            "findings": len(findings),
-            "identity_clear": identity_clear,
-            "identity_gaps": identity_gaps,
-            "inconsistencies": inconsistencies,
+            "total_findings": len(findings),
+            "high": severity_counts["high"],
+            "medium": severity_counts["medium"],
         },
         "findings": findings,
-        "limitations": limitations,
     }
 
 
