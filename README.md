@@ -1,110 +1,150 @@
 # Brand AI Readiness Audit
 
-An Agent Skill Marketplace for auditing public websites for AI discoverability, machine readability, entity trust, freshness, and conversational engagement.
+An `agentskills.io`-compliant Agent Skill Marketplace for auditing public websites for AI discoverability, machine readability, entity trust, knowledge freshness, and conversational engagement.
 
-The marketplace uses a single orchestrator and modular specialist skills that share a structured evidence bundle. It identifies evidence-backed issues and produces actionable, provider-neutral recommendations without modifying the target website.
+The marketplace uses a single orchestrator entrypoint and four focused domain skills. It diagnoses evidence-backed visibility gaps and produces actionable, provider-neutral recommendations with benchmark metrics without modifying the target website.
 
 ## Architecture
 
-Public Website URL
-        |
-        v
-site-intelligence
-        |
-        +--> machine-readability
-        +--> engagement-audit
-        +--> crawl-render-audit
-        +--> freshness-corroboration
-        +--> entity-trust
-        |
-        v
-evidence-correlator
-        |
-        v
-recommendation-engine
-        |
-        v
-Final Audit Report
+```
+[Public Website URL]
+        │
+        ▼
+audit-orchestrator (Entrypoint)
+        │
+        ├── BFS Crawl (robots.txt, crawl-delay, max-pages, timeout)
+        │
+        ├── crawl-render-audit      → "Can AI crawlers fetch, parse, and render content?"
+        ├── entity-trust            → "Can AI models disambiguate and trust brand identity?"
+        ├── freshness-corroboration  → "Are facts current, corroborated, and canonical?"
+        └── engagement-audit        → "Can AI and humans navigate and extract key answers?"
+        │
+        ▼
+Severity Correlation & Boosting Engine
+        │
+        ▼
+Structured JSON Audit Report (with AI Readiness Score)
+```
 
 ## Skills
 
-- audit-orchestrator — single entrypoint coordinating the complete audit pipeline.
-- site-intelligence — performs bounded, same-origin, read-only website discovery and produces the shared evidence bundle.
-- machine-readability — evaluates structured and semantic signals that help automated systems interpret website content.
-- engagement-audit — evaluates discoverable navigation, calls to action, and engagement pathways.
-- crawl-render-audit — evaluates content observability, semantic structure, and rendering-related limitations.
-- freshness-corroboration — evaluates publication and modification signals and corroborates freshness evidence.
-- entity-trust — evaluates organization, offering, and identity signals for consistency and machine interpretation.
-- evidence-correlator — combines explicit specialist findings, evaluates evidence sufficiency, and reduces unsupported false positives.
-- recommendation-engine — converts supported findings into prioritized, provider-neutral recommendations with verification steps.
+| Skill | Type | Responsibility |
+|---|---|---|
+| `audit-orchestrator` | Entrypoint | Bounded BFS crawl, dispatches domain checks, correlates cross-skill signals, boosts severities, and emits the final JSON audit report. |
+| `crawl-render-audit` | Domain | Audits AI crawler access (robots.txt ACLs, WAF/CAPTCHA bot-blocks), HTTPS transport, CSR hydration barriers, semantic HTML, text extraction density, `/llms.txt`, and image alt-text coverage. |
+| `entity-trust` | Domain | Audits Schema.org structured data, stable `@id` anchoring, authoritative `sameAs` links (Wikidata, Wikipedia, LinkedIn), disambiguating descriptions, brand name consistency, offering schemas, entity relationships, and legal disclosures. |
+| `freshness-corroboration` | Domain | Audits temporal markers (`dateModified`, `Last-Modified`, stale copyright years), sitemap declaration & `<lastmod>`, canonical drift, and legacy URL tombstones. |
+| `engagement-audit` | Domain | Audits on-site retention, heading hierarchy gaps, lead answer density, wall-of-text scannability, section fragment anchors (`#id`), transactional CTAs, and cross-category taxonomy bleed. |
 
-## Design Principles
+## Guardrails
 
-- Evidence first: observations are separated from findings.
-- Modular: each skill has a focused responsibility and shared contracts.
-- Read-only: the target website is analyzed without modification.
-- Provider-neutral: recommendations do not depend on a specific CMS, framework, hosting provider, or AI platform.
-- Conservative: uncertain or unavailable evidence is reported as a limitation rather than asserted as a defect.
-- Deterministic: outputs and tests are designed for reproducible evaluation.
-- Actionable: findings connect evidence to root causes, recommendations, expected outcomes, and verification steps.
+- **Read-only**: Strictly non-intrusive. Zero site modifications, zero authenticated access.
+- **Respectful**: Honors `robots.txt`, `Crawl-delay` (capped at 5 s per request to prevent budget bleed), and `noindex`/`none` directives.
+- **Bounded**: Enforces a strict 280-second hard ceiling (under the 300-second competition ceiling) and configurable page budget (default: 5 pages).
+- **Generalized**: Pattern-driven heuristics without hardcoded brand names, pricing assumptions, or CMS biases.
+- **Calibrated Scoring**: Emits an executive `ai_readiness_score` (0–100), headline, top priority, and phase verdicts alongside raw findings.
 
-## Audit Flow
+## Execution
 
-1. Discover — site-intelligence collects bounded website evidence.
-2. Analyze — specialist skills independently evaluate different dimensions of AI readiness.
-3. Correlate — evidence-correlator combines explicit findings and evaluates evidence sufficiency.
-4. Recommend — recommendation-engine converts supported findings into actionable recommendations.
-5. Report — audit-orchestrator produces the final structured audit report.
+### Run the Audit
 
-## Running the Audit
+```bash
+python skills/audit-orchestrator/scripts/audit_engine.py --url https://example.com --max-pages 5 --out report.json
+```
 
-From the repository root:
+Options:
+- `--url`: Target website URL (required)
+- `--max-pages`: Maximum internal pages to crawl (default: 5)
+- `--timeout`: Per-request network timeout in seconds (default: 15)
+- `--out`: Path to write report JSON file (optional, defaults to stdout)
 
-python skills\audit-orchestrator\scripts\run_audit.py https://example.com
+### Validation
 
-The orchestrator collects site evidence, runs the specialist skills, correlates supported findings, generates recommendations, and produces the final audit report.
+Validate the marketplace entrypoint directly against any target URL:
 
-## Testing
+```bash
+python skills/audit-orchestrator/scripts/audit_engine.py --url https://example.com --max-pages 1
+```
 
-Run the complete test suite:
+All 5 skills adhere strictly to the `agentskills.io` specification with dedicated `SKILL.md` instructions and bundled execution scripts.
 
-Get-ChildItem -Path skills -Recurse -Filter "test_*.py" | ForEach-Object {
-    python $_.FullName
-    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+## Output Schema
+
+The engine emits a severity-ranked, machine-readable JSON report:
+
+```json
+{
+  "site": "example.com",
+  "audited_at": "2026-09-13T23:30:00Z",
+  "crawl_meta": {
+    "pages_crawled": 5,
+    "pages_errored": 0,
+    "errors": []
+  },
+  "summary": {
+    "ai_readiness_score": 82,
+    "headline": "example.com has solid AI readiness with 6 optimization opportunities.",
+    "top_priority": "Add Organization JSON-LD with name, url, logo, sameAs, and disambiguatingDescription.",
+    "total_findings": 6,
+    "critical": 0,
+    "high": 2,
+    "medium": 4,
+    "phase_verdicts": {
+      "crawl_render": "pass",
+      "entity_trust": "warn",
+      "freshness": "pass",
+      "engagement": "pass"
+    }
+  },
+  "findings": [
+    {
+      "id": "F-001",
+      "title": "Machine-Readable Organization Identity Missing",
+      "severity": "high",
+      "category": "entity_identity",
+      "url": "https://example.com",
+      "evidence": "Visible site content present but no Organization, Brand, or LocalBusiness JSON-LD found.",
+      "suggested_action": {
+        "summary": "Add Organization JSON-LD with name, url, logo, sameAs, and disambiguatingDescription.",
+        "priority": "high",
+        "scope": "site"
+      }
+    }
+  ]
 }
-
-Current local regression status:
-
-81/81 tests passing
+```
 
 ## Marketplace Structure
 
-marketplace.json
-README.md
-skills/
-├── audit-orchestrator/
-├── site-intelligence/
-├── machine-readability/
-├── engagement-audit/
-├── crawl-render-audit/
-├── freshness-corroboration/
-├── entity-trust/
-├── evidence-correlator/
-└── recommendation-engine/
-
-marketplace.json registers all nine skills, with audit-orchestrator as the designated entrypoint.
-
-## Output
-
-The audit produces a structured report containing:
-
-- Audited site and crawl metadata
-- Evidence-backed findings
-- Affected scope and pages
-- Evidence relationships and sufficiency
-- Confidence levels
-- Prioritized recommendations
-- Verification steps
-- Explicit limitations and uncertainty
-
-The marketplace is designed to help AI agents understand what is wrong, why it matters, what evidence supports it, and what can be done next.
+```
+brand-ai-readiness-audit/
+├── marketplace.json
+├── README.md
+├── LICENSE
+├── CONTRIBUTORS.md
+└── skills/
+    ├── audit-orchestrator/
+    │   ├── SKILL.md
+    │   ├── scripts/
+    │   │   └── audit_engine.py
+    │   └── references/
+    │       ├── severity_rubric.md
+    │       ├── remediation_catalog.md
+    │       └── checklist.md
+    ├── crawl-render-audit/
+    │   ├── SKILL.md
+    │   └── scripts/
+    │       └── analyze_crawl_render.py
+    ├── entity-trust/
+    │   ├── SKILL.md
+    │   └── scripts/
+    │       └── analyze_entity.py
+    ├── freshness-corroboration/
+    │   ├── SKILL.md
+    │   └── scripts/
+    │       └── analyze_freshness.py
+    └── engagement-audit/
+        ├── SKILL.md
+        └── scripts/
+            └── analyze_engagement.py
+```
