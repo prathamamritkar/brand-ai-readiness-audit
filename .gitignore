@@ -1,7 +1,22 @@
+# Python Cache
 __pycache__/
 *.pyc
-.venv/
+*.pyo
+*.pyd
+
+# Virtual Environments
 venv/
+.venv/
+env/
 .env
+
+# Local Test Reports (keep example_report.json tracked)
+*_report.json
+!example_report.json
+
+# OS Generated Files
 .DS_Store
+Thumbs.db
+
+# Logs
 *.log
