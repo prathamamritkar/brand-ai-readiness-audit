@@ -21,7 +21,7 @@ Use this skill as the **sole entrypoint** to audit a target website for AI disco
 
 ## Procedure
 1. Receive the target URL.
-2. **Primary Fetch** — fetch the URL and its robots.txt via `utils/fetcher.py`.
+2. **Primary Fetch** — fetch the URL and its robots.txt via `scripts/fetcher.py`.
 3. **Link Discovery** — extract up to 5 same-domain internal links from the DOM.
 4. **Multi-Page Fetch** — fetch each internal page (lightweight, reuses robots parser).
 5. **For each page**, run all 4 sub-skills in strict diagnostic order:

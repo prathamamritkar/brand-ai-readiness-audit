@@ -41,7 +41,7 @@ def _load_module(name, rel_path):
 # ---------------------------------------------------------------------------
 # Lazy-load sub-skill modules by file path (handles hyphenated dirs)
 # ---------------------------------------------------------------------------
-_fetcher = _load_module("fetcher", "skills/utils/fetcher.py")
+_fetcher = _load_module("fetcher", "skills/audit-orchestrator/scripts/fetcher.py")
 _crawl_render = _load_module("check_crawl_render", "skills/crawl-render-audit/scripts/check_crawl_render.py")
 _discoverability = _load_module("check_discoverability", "skills/discoverability-audit/scripts/check_discoverability.py")
 _freshness = _load_module("check_freshness", "skills/freshness-signals/scripts/check_freshness.py")
