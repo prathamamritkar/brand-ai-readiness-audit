@@ -16,7 +16,7 @@ audit-orchestrator (Entrypoint)
         │
         ├── crawl-render-audit      → "Can AI crawlers fetch, parse, and render content?"
         ├── entity-trust            → "Can AI models disambiguate and trust brand identity?"
-        ├── freshness-corroboration  → "Are facts current, corroborated, and canonical?"
+        ├── freshness-corroboration → "Are facts current, corroborated, and canonical?"
         └── engagement-audit        → "Can AI and humans navigate and extract key answers?"
         │
         ▼
