@@ -41,14 +41,14 @@ def _load_module(name, rel_path):
 # ---------------------------------------------------------------------------
 # Lazy-load sub-skill modules by file path (handles hyphenated dirs)
 # ---------------------------------------------------------------------------
-_fetcher = _load_module("fetcher", "skills/audit-orchestrator/scripts/fetcher.py")
-_crawl_render = _load_module("check_crawl_render", "skills/crawl-render-audit/scripts/check_crawl_render.py")
-_discoverability = _load_module("check_discoverability", "skills/discoverability-audit/scripts/check_discoverability.py")
-_freshness = _load_module("check_freshness", "skills/freshness-signals/scripts/check_freshness.py")
-_engagement = _load_module("check_engagement", "skills/engagement-audit/scripts/check_engagement.py")
-_security_trust = _load_module("check_security_trust", "skills/security-trust-audit/scripts/check_security_trust.py")
-_performance = _load_module("check_performance", "skills/performance-audit/scripts/check_performance.py")
-_social_authority = _load_module("check_social_authority", "skills/social-authority-audit/scripts/check_social_authority.py")
+_fetcher = _load_module("fetcher", "skills-a/audit-orchestrator/scripts/fetcher.py")
+_crawl_render = _load_module("check_crawl_render", "skills-a/crawl-render-audit/scripts/check_crawl_render.py")
+_discoverability = _load_module("check_discoverability", "skills-a/discoverability-audit/scripts/check_discoverability.py")
+_freshness = _load_module("check_freshness", "skills-a/freshness-signals/scripts/check_freshness.py")
+_engagement = _load_module("check_engagement", "skills-a/engagement-audit/scripts/check_engagement.py")
+_security_trust = _load_module("check_security_trust", "skills-a/security-trust-audit/scripts/check_security_trust.py")
+_performance = _load_module("check_performance", "skills-a/performance-audit/scripts/check_performance.py")
+_social_authority = _load_module("check_social_authority", "skills-a/social-authority-audit/scripts/check_social_authority.py")
 
 # Maximum internal pages to crawl beyond the target URL
 MAX_INTERNAL_PAGES = 5

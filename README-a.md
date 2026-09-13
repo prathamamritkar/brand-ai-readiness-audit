@@ -136,16 +136,16 @@ pip install -r requirements.txt
 
 ```bash
 # Full multi-page audit (crawls target + up to 5 internal pages)
-python skills/audit-orchestrator/scripts/run_audit.py https://example.com
+python skills-a/audit-orchestrator/scripts/run_audit.py https://example.com
 
 # Limit internal pages crawled
-python skills/audit-orchestrator/scripts/run_audit.py https://example.com --pages 3
+python skills-a/audit-orchestrator/scripts/run_audit.py https://example.com --pages 3
 
 # Single-page mode (fastest)
-python skills/audit-orchestrator/scripts/run_audit.py https://example.com --single
+python skills-a/audit-orchestrator/scripts/run_audit.py https://example.com --single
 
 # Save report to file
-python skills/audit-orchestrator/scripts/run_audit.py https://example.com > report.json
+python skills-a/audit-orchestrator/scripts/run_audit.py https://example.com > report.json
 ```
 
 ### 4. Run individual skills (optional)
@@ -153,13 +153,13 @@ python skills/audit-orchestrator/scripts/run_audit.py https://example.com > repo
 Each sub-skill also works independently:
 
 ```bash
-python skills/crawl-render-audit/scripts/check_crawl_render.py https://example.com
-python skills/discoverability-audit/scripts/check_discoverability.py https://example.com
-python skills/freshness-signals/scripts/check_freshness.py https://example.com
-python skills/engagement-audit/scripts/check_engagement.py https://example.com
-python skills/security-trust-audit/scripts/check_security_trust.py https://example.com
-python skills/performance-audit/scripts/check_performance.py https://example.com
-python skills/social-authority-audit/scripts/check_social_authority.py https://example.com
+python skills-a/crawl-render-audit/scripts/check_crawl_render.py https://example.com
+python skills-a/discoverability-audit/scripts/check_discoverability.py https://example.com
+python skills-a/freshness-signals/scripts/check_freshness.py https://example.com
+python skills-a/engagement-audit/scripts/check_engagement.py https://example.com
+python skills-a/security-trust-audit/scripts/check_security_trust.py https://example.com
+python skills-a/performance-audit/scripts/check_performance.py https://example.com
+python skills-a/social-authority-audit/scripts/check_social_authority.py https://example.com
 ```
 
 ### 5. Run tests
