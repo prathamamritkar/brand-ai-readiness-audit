@@ -29,7 +29,7 @@ Fixing an indexing gap and fixing a citation gap require fundamentally different
 
 ## Procedure
 
-1. **Initialize**: Normalize the URL (strip trailing slash, resolve scheme). Record `audited_at` as ISO 8601 UTC. Start a total runtime budget of **300 s** for the entire audit (crawl + all checks + emit). All HTTP fetches: 10 s timeout, `User-Agent: Mozilla/5.0 (compatible; audit-bot/1.0)`, GET only, no authentication, no cookies. Respect `Crawl-delay`. Use only: `urllib`, `requests`, `bs4` (BeautifulSoup), `xml.etree.ElementTree`, `json`, `re`, `hashlib`.
+1. **Initialize**: Normalize the URL (strip trailing slash, resolve scheme). Record `audited_at` as ISO 8601 UTC. Start a total runtime budget of **300 s** for the entire audit (crawl + all checks + emit). All HTTP fetches: 10 s timeout, `User-Agent: Mozilla/5.0 (compatible; BrandAIReadinessAuditBot/3.0; +https://agentskills.io)`, GET only, no authentication, no cookies. Respect `Crawl-delay`. Use only Python 3.9+ standard library (`urllib`, `html.parser`, `xml.etree.ElementTree`, `json`, `re`, `hashlib`) with zero third-party dependencies.
 
 2. **robots.txt** (`gap_type: "indexing"`):
    - Fetch `/robots.txt`. On connection error or non-2xx, record `medium` finding: robots.txt absent or inaccessible — crawl posture unknown.

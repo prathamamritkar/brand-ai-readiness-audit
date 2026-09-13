@@ -4,7 +4,7 @@
 - [ ] `marketplace.json` with exactly one `entrypoint: true`
 - [ ] All 5 skills have `SKILL.md` with YAML frontmatter
 - [ ] `README.md` at root
-- [ ] `scripts/audit_engine.py` executable stdlib + requests + bs4
+- [ ] `scripts/audit_engine.py` executable with Python 3.9+ standard library (zero external dependencies)
 - [ ] `references/` contains rubric, remediation, and checklist
 
 ## Function
